@@ -1,30 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-operation="${1:-release}"
-case "$operation" in
-  stop|release) ;;
-  *) echo 'Usage: deploy-code.sh [stop|release]' >&2; exit 2 ;;
-esac
-
-: "${DEPLOY_NAMESPACE:?Pipeline must select a deployment namespace}"
-[[ "$DEPLOY_NAMESPACE" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || {
-  echo 'Invalid deployment namespace' >&2; exit 1;
-}
-export DEPLOY_NAMESPACE
-: "${DEPLOY_COMMIT:?}"
+: "${DEPLOY_NAMESPACE:?}"
+: "${DEPLOY_IMAGE:?}"
 : "${RELEASE_ID:?}"
-[[ "$DEPLOY_COMMIT" =~ ^[0-9a-f]{40,64}$ ]] || { echo 'Invalid commit' >&2; exit 1; }
-[[ "$RELEASE_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo 'Invalid release ID' >&2; exit 1; }
-[[ "$PWD" == "/home/jenkins/agent/releases/$RELEASE_ID" ]] || {
-  echo 'Release must run from its persistent workspace.' >&2; exit 1;
+: "${IMAGE_REPOSITORY:?}"
+[[ "$DEPLOY_NAMESPACE" == production ]] || { echo 'Only production is supported' >&2; exit 1; }
+[[ "$DEPLOY_IMAGE" == "$IMAGE_REPOSITORY"@sha256:* && "${DEPLOY_IMAGE##*@}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+  echo 'Deployment requires a digest in the configured image repository' >&2; exit 1;
 }
-if [[ "$operation" == release ]]; then
-[[ "$(cat .deploy-code-built)" == "$DEPLOY_COMMIT" ]] || {
-  echo 'This commit has not compiled successfully.' >&2; exit 1;
-}
-fi
-
+[[ "$RELEASE_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || exit 1
 case "$(uname -m)" in
   x86_64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
@@ -69,40 +53,52 @@ kube() {
   kubectl --namespace="$DEPLOY_NAMESPACE" --request-timeout=15s "$@"
 }
 
-if [[ "$operation" == stop ]]; then
-  deployment="$(kube get deployment trackingtrucks --ignore-not-found -o name)"
-  if [[ -n "$deployment" ]]; then
-    echo "Stopping $DEPLOY_NAMESPACE/trackingtrucks before building..."
-    kube patch deployment trackingtrucks --type=merge -p '{"spec":{"replicas":0}}'
-  fi
-
-  deadline=$((SECONDS + 180))
-  while true; do
-    pods="$(kube get pods -l app=trackingtrucks -o name)"
-    [[ -n "$pods" ]] || break
-    if (( SECONDS >= deadline )); then
-      echo 'Timed out waiting for application pods to terminate.' >&2
-      printf '%s\n' "$pods" >&2
-      exit 1
+# Save the entire previous spec, including the old PVC layout during the first migration.
+kube get deployment trackingtrucks --ignore-not-found -o json > "$bin_dir/previous.json"
+node - "$bin_dir/previous.json" <<'JS'
+const fs = require('node:fs');
+const path = process.argv[2];
+const text = fs.readFileSync(path, 'utf8');
+if (text.trim()) {
+  const old = JSON.parse(text);
+  for (const key of ['resourceVersion', 'uid', 'creationTimestamp', 'generation', 'managedFields']) delete old.metadata[key];
+  if (old.metadata.annotations) delete old.metadata.annotations['kubectl.kubernetes.io/last-applied-configuration'];
+  delete old.status;
+  fs.writeFileSync(path, JSON.stringify(old));
+}
+JS
+changed=false
+verified=false
+cleanup() {
+  result=$?
+  trap - EXIT INT TERM
+  if [[ "$changed" == true && "$verified" != true ]]; then
+    echo 'Release failed; restoring the previous Deployment.' >&2
+    if [[ -s "$bin_dir/previous.json" ]]; then
+      if ! kube apply -f "$bin_dir/previous.json" || ! kube rollout status deployment/trackingtrucks --timeout=5m; then
+        echo 'AUTOMATIC ROLLBACK FAILED: inspect production/trackingtrucks immediately.' >&2
+      fi
+    else
+      kube scale deployment trackingtrucks --replicas=0 || true
     fi
-    sleep 3
-  done
+  fi
+  rm -rf -- "$bin_dir"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-  echo 'Application pods stopped. Workspace, storage and Service preserved.'
-  exit 0
-fi
-
-export APP_HOST="${APP_HOST:-}"
-
-# JSON safely quotes all user-supplied values.
-node <<'JS' | kube apply -f -
+node > "$bin_dir/deployment.json" <<'JS'
 const labels = {app: 'trackingtrucks'};
 const deployment = {
   apiVersion: 'apps/v1', kind: 'Deployment',
   metadata: {name: 'trackingtrucks', namespace: process.env.DEPLOY_NAMESPACE},
   spec: {
     replicas: 1,
-    revisionHistoryLimit: 5,
+    revisionHistoryLimit: 10,
+    minReadySeconds: 10,
+    progressDeadlineSeconds: 300,
     selector: {matchLabels: labels},
     strategy: {type: 'RollingUpdate', rollingUpdate: {maxUnavailable: 0, maxSurge: 1}},
     template: {
@@ -116,26 +112,20 @@ const deployment = {
       },
       spec: {
         automountServiceAccountToken: false,
+        imagePullSecrets: [{name: 'registry-reader'}],
         securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000},
         containers: [{
           name: 'app',
-          image: 'node:24-bookworm',
-          workingDir: '/app',
-          command: ['npm', 'run', 'dev', '--', '--host', '0.0.0.0', '--port', '5173', '--strictPort'],
-          env: [{name: '__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS', value: process.env.APP_HOST}],
+          image: process.env.DEPLOY_IMAGE,
+          imagePullPolicy: 'IfNotPresent',
+          securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ['ALL']}},
           ports: [{name: 'http', containerPort: 5173}],
-          readinessProbe: {httpGet: {path: '/', port: 'http'}, periodSeconds: 5},
-          resources: {requests: {cpu: '100m', memory: '256Mi'}, limits: {cpu: '1', memory: '1Gi'}},
-          volumeMounts: [{
-            name: 'releases',
-            mountPath: '/app',
-            subPath: 'releases/' + process.env.RELEASE_ID
-          }]
+          readinessProbe: {httpGet: {path: '/index.html', port: 'http'}, periodSeconds: 5},
+          livenessProbe: {httpGet: {path: '/healthz', port: 'http'}, periodSeconds: 10},
+          resources: {requests: {cpu: '100m', memory: '64Mi'}, limits: {cpu: '1', memory: '256Mi'}},
+          volumeMounts: [{name: 'tmp', mountPath: '/tmp'}]
         }],
-        volumes: [{
-          name: 'releases',
-          persistentVolumeClaim: {claimName: 'trackingtrucks-releases'}
-        }]
+        volumes: [{name: 'tmp', emptyDir: {}}]
       }
     }
   }
@@ -147,7 +137,35 @@ const service = {
 };
 process.stdout.write(JSON.stringify({apiVersion: 'v1', kind: 'List', items: [deployment, service]}));
 JS
-
-kube rollout status deployment/trackingtrucks --timeout=10m
-echo "Released $BRANCH at $DEPLOY_COMMIT as $RELEASE_ID."
-echo "Access: https://$APP_HOST"
+changed=true
+kube apply -f "$bin_dir/deployment.json"
+kube rollout status deployment/trackingtrucks --timeout=6m
+# Verify traffic through the Service reaches this exact build, not just another healthy pod.
+node <<'JS'
+const fs = require('node:fs');
+(async () => {
+  const base = `http://trackingtrucks.${process.env.DEPLOY_NAMESPACE}.svc.cluster.local`;
+  let lastError;
+  for (let i = 0; i < 12; i++) {
+    try {
+      const response = await fetch(base + '/release.json', {signal: AbortSignal.timeout(5000)});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const baked = await response.json();
+      if (!/^[0-9a-f]{40,64}$/.test(baked.commit) ||
+          (process.env.DEPLOY_COMMIT && (baked.commit !== process.env.DEPLOY_COMMIT || baked.release !== process.env.RELEASE_ID))) {
+        throw new Error('Service still serves another build');
+      }
+      const index = await fetch(base + '/index.html', {signal: AbortSignal.timeout(5000)});
+      if (!index.ok || !(await index.text()).includes('<html')) throw new Error('Invalid application index');
+      const release = {image: process.env.DEPLOY_IMAGE, commit: baked.commit, branch: baked.branch, sourceRelease: baked.release};
+      Object.assign(release, {deployment: process.env.RELEASE_ID, buildUrl: process.env.BUILD_URL,
+        deployedAt: new Date().toISOString(), status: 'verified'});
+      fs.writeFileSync('release.json', JSON.stringify(release, null, 2) + '\n');
+      return;
+    } catch (err) { lastError = err; await new Promise(resolve => setTimeout(resolve, 5000)); }
+  }
+  throw lastError;
+})().catch(err => { console.error(err); process.exitCode = 1; });
+JS
+verified=true
+echo "Ready: $DEPLOY_IMAGE at https://$APP_HOST"

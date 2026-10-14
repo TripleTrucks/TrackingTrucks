@@ -1,39 +1,27 @@
 # DEPLOY_CODE
 
-Run bash devops/jenkins/deployJenkins.sh from the repository root to seed the job and refresh its mounted scripts.
+First install the cluster registry following [artifacts/README.md](../../../artifacts/README.md). Then run `bash devops/jenkins/deployJenkins.sh` from the project root to refresh the job and scripts.
 
-## Parameters and configuration
+## Parameters
 
-- REPO_URL: repository SSH URL.
-- BRANCH: branch to release, defaulting to main.
-- GIT_CREDENTIALS_ID: Jenkins SSH credential ID, defaulting to github-ssh.
+- `IMAGE`: saved `repository@sha256:digest` from a successful Jenkins run. Leave blank to build new code.
+- `BRANCH`: branch to build, default `main`; ignored when IMAGE is supplied.
+- `REPO_URL`: Git repository SSH URL.
+- `GIT_CREDENTIALS_ID`: Jenkins SSH credential ID, default `github-ssh`.
 
-Store the private key in Jenkins Credentials and grant its public key repository access.
-The selected branch must contain devops/jenkins/environments.yaml.
-The pipeline reads production.namespace and production.hostname from that file.
-This job targets production; testing and staging entries are reserved for separate jobs.
-No APP_HOST build parameter is needed.
+Production hostname/namespace are read from the operator's `devops/jenkins/environments.yaml` when Jenkins is seeded. This lets saved-image deployments work without checking out Git. Rerun the Jenkins deployment script when those settings change.
 
-## Stages
+## Flow
 
-1. Checkout repository: clone the selected branch, validate production settings, and record the commit.
-2. Clean workspace: call the mounted deploy-code.sh stop operation. Set trackingtrucks replicas to zero and wait up to three minutes for its application pods to disappear. A missing Deployment is accepted for the first release.
-3. Build code: install dependencies with npm ci and run npm run build.
-4. Cut release: call the same mounted deploy-code.sh release operation. Validate the compiled commit, apply the Deployment with one replica, and wait for readiness.
+1. **Prepare release**: select an existing image or check out the branch.
+2. **Compile application**: run `npm ci` and `npm run build` for new images.
+3. **Push artifacts**: build an OCI image from compiled assets and push it to Zot. Skipped for an existing image.
+4. **Deploy and verify**: deploy the immutable digest, wait for readiness and check the application through its Service. Archive `release.json` after verification.
 
-The app is offline between cleanup and a successful release. Build failure leaves it stopped.
-Cleanup preserves the Service, PVC, release files, namespace and Jenkins agent.
-The deployment script explicitly authenticates to the in-cluster Kubernetes API using the build pod's deploy-code service account. No Rancher admin credentials are required.
+Use the image digest printed by a successful job as `IMAGE` to roll back. Uploaded images from failed deployments can remain in the registry; successful Jenkins builds identify the verified releases.
 
-## Storage and access
+Production keeps running during compilation. Failed deployments attempt to restore the previous Deployment. The application serves compiled assets using Nginx on port 5173 behind the existing Service on port 80. Existing external routing to the Service is unchanged.
 
-Each build gets a separate releases/<release-id> directory on trackingtrucks-releases.
-The application mounts that directory and runs npm run dev on port 5173.
-The production trackingtrucks Service exposes port 80.
-Compilation validates dist; the runtime continues serving the selected source with Vite.
-The YAML hostname is passed to Vite's allowed-host environment variable.
-Existing Tailscale forwarding is configured separately and continues using the Service.
+Build workspaces are temporary; new application pods no longer mount the release workspace PVC. Registry storage persists independently of Jenkins's 30-build history. Only compiled public assets and metadata enter the image, not `.env`, source files or `node_modules`.
 
-Release directories are retained on the PVC; Jenkins build-log retention does not remove them.
-Keep directories used by current or rollback releases.
-The local-path PVC places the build and application pods on the storage node.
+The rootless BuildKit container requires unconfined seccomp/AppArmor; no host Docker socket is mounted. Build only trusted branches because npm lifecycle scripts run in a pod authorized to deploy production.

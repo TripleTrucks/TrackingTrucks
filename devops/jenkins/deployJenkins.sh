@@ -41,6 +41,10 @@ kube=(kubectl --context "$CONTEXT")
 printf 'Deploying Jenkins %s into namespace %s on context %s\n' \
   "$VERSION" "$NAMESPACE" "$CONTEXT"
 
+# Install artifacts/ first. Fail before changing Jenkins if registry clients are absent.
+"${kube[@]}" -n production get configmap registry-settings registry-ca registry-buildkit >/dev/null
+"${kube[@]}" -n production get secret registry-jenkins registry-reader -o name >/dev/null
+
 # Seed DEPLOY_CODE and publish its scripts alongside the Jenkins installation.
 JOB_CONFIG="$(mktemp)"
 trap 'rm -f -- "$JOB_CONFIG"' EXIT
