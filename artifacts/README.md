@@ -6,21 +6,23 @@ Zot runs in the cluster's `artifacts` namespace with persistent storage, HTTPS a
 
 Requirements: K3s with `local-path` storage, kubectl, Helm, OpenSSL, Python 3, `python3-bcrypt` and `python3-yaml`.
 
-Run from the project root, using a stable node IP or DNS name reachable by both pods and K3s nodes:
+Run from the project root. The setup discovers your single-node cluster's internal IPv4 address:
 
 ```bash
-python3 artifacts/prepare.py 192.168.68.55
+python3 artifacts/prepare.py
 bash artifacts/deploy.sh
 bash artifacts/trust-k3s.sh
 kubectl get nodes
 bash devops/jenkins/deployJenkins.sh
 ```
 
-`prepare.py` only creates local configuration. `deploy.sh` installs the registry and client credentials, honoring `KUBECONFIG` and `KUBE_CONTEXT`. `trust-k3s.sh` explicitly uses sudo to install registry CA trust, merge/back up `/etc/rancher/k3s/registries.yaml`, and restart K3s briefly. Schedule that step accordingly. On additional agent nodes, copy the public CA and run `K3S_SERVICE=k3s-agent bash artifacts/trust-k3s.sh HOST:30500 /path/to/ca.crt`.
+`prepare.py` reads the node address using kubectl and only writes local configuration. Both it and `deploy.sh` honor `KUBECONFIG` and `KUBE_CONTEXT`, falling back to `~/.kube/trackingtrucks-k3s.yaml` when available. For multiple nodes or a preferred DNS name, use `python3 artifacts/prepare.py registry.example.com` instead; the address must be reachable by both pods and nodes.
+
+`deploy.sh` installs the registry and client credentials. `trust-k3s.sh` explicitly uses sudo to install registry CA trust, merge/back up `/etc/rancher/k3s/registries.yaml`, and restart K3s briefly. Schedule that step accordingly. On additional agent nodes, copy the public CA and run `K3S_SERVICE=k3s-agent bash artifacts/trust-k3s.sh HOST:30500 /path/to/ca.crt`.
 
 Passwords, certificates and generated private configuration stay in gitignored `artifacts/.local/`. Re-running preparation preserves them. Reserve the server IP in DHCP; changing the address requires updating the certificate and registry clients.
 
-Browse `https://192.168.68.55:30500`. Trust `.local/ca.crt` on your workstation and log in as `reader` with `.local/reader.password`. Port 30500 is exposed on node interfaces; restrict access to your LAN/tailnet as appropriate. Authentication and certificate verification remain enabled.
+Browse the HTTPS address printed by `deploy.sh` (also saved in `.local/endpoint`). Trust `.local/ca.crt` on your workstation and log in as `reader` with `.local/reader.password`. Port 30500 is exposed on node interfaces; restrict access to your LAN/tailnet as appropriate. Authentication and certificate verification remain enabled.
 
 ## Deploy an image
 

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 STATE="$ROOT/.local"
 for tool in kubectl helm; do command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 1; }; done
-[[ -s "$STATE/endpoint" ]] || { echo 'First run: python3 artifacts/prepare.py NODE_IP_OR_DNS_NAME' >&2; exit 1; }
+[[ -s "$STATE/endpoint" ]] || { echo 'First run: python3 artifacts/prepare.py' >&2; exit 1; }
 if [[ -z "${KUBECONFIG:-}" && -r "$HOME/.kube/trackingtrucks-k3s.yaml" ]]; then
   export KUBECONFIG="$HOME/.kube/trackingtrucks-k3s.yaml"
 fi

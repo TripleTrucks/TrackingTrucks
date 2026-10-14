@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare installation inputs locally; never connects to the cluster."""
+"""Discover the registry address and prepare local installation inputs."""
 import base64
 import ipaddress
 import json
@@ -15,9 +15,39 @@ import bcrypt
 os.umask(0o077)
 root = Path(__file__).resolve().parent
 state = root / '.local'
-host = sys.argv[1] if len(sys.argv) == 2 else ''
+if len(sys.argv) > 2:
+    sys.exit('Usage: python3 artifacts/prepare.py [NODE_IP_OR_DNS_NAME]')
+if len(sys.argv) == 2:
+    host = sys.argv[1]
+else:
+    # Match deploy.sh's cluster selection; this is a read-only lookup.
+    kube_env = os.environ.copy()
+    kubeconfig = Path.home() / '.kube/trackingtrucks-k3s.yaml'
+    if not kube_env.get('KUBECONFIG') and kubeconfig.is_file():
+        kube_env['KUBECONFIG'] = str(kubeconfig)
+    command = ['kubectl']
+    if kube_env.get('KUBE_CONTEXT'):
+        command += ['--context', kube_env['KUBE_CONTEXT']]
+    command += ['get', 'nodes', '-o', 'json', '--request-timeout=15s']
+    try:
+        nodes = json.loads(subprocess.check_output(command, env=kube_env, text=True, timeout=30))['items']
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
+        sys.exit(f'Cannot discover the cluster node: {error}. Check kubectl access or supply a hostname/IP explicitly.')
+    if len(nodes) != 1:
+        sys.exit('Automatic discovery requires a single-node cluster. Supply a stable node IP or DNS name explicitly.')
+    addresses = []
+    for address in nodes[0].get('status', {}).get('addresses', []):
+        if address.get('type') == 'InternalIP':
+            try:
+                addresses.append(str(ipaddress.IPv4Address(address['address'])))
+            except (ValueError, KeyError):
+                pass
+    if len(addresses) != 1:
+        sys.exit('Node must have one internal IPv4 address. Supply a stable IPv4 address or DNS name explicitly.')
+    host = addresses[0]
+    print(f'Discovered {host} from node {nodes[0]["metadata"]["name"]}.')
 if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}', host):
-    sys.exit('Usage: python3 artifacts/prepare.py NODE_IP_OR_DNS_NAME (no scheme or port)')
+    sys.exit('Expected a node IPv4 address or DNS name (no scheme or port).')
 try:
     ipaddress.IPv4Address(host)
     san = f'IP:{host}'
