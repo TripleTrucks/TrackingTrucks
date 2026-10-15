@@ -10,9 +10,16 @@ set -euo pipefail
 }
 [[ "$RELEASE_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || exit 1
 # Promote only the digest whose deployment passed the readiness and Service checks.
-# Reuse this script so publication does not require a separate helper or tool image.
+# Guard publication and record its verified digest without a separate helper script.
 case "${1:-deploy}" in
   deploy) ;;
+  check)
+    node <<'JS'
+const release = require(process.cwd() + '/release.json');
+if (release.status !== 'verified' || release.image !== process.env.DEPLOY_IMAGE ||
+    release.deployment !== process.env.RELEASE_ID) throw new Error('Deployment has not been verified');
+JS
+    exit 0 ;;
   publish)
     node <<'JS'
 const fs = require('node:fs');
@@ -61,7 +68,7 @@ const crypto = require('node:crypto');
   const type = JSON.parse(manifest).mediaType;
   if (!types.includes(type)) throw new Error('Expected an OCI image manifest or index');
   // Add a new immutable tag to the SAME manifest; never rebuild the verified image.
-  await request(tag, 'PUT', manifest, type);
+  if (process.env.SELECTED_IMAGE) await request(tag, 'PUT', manifest, type);
   if (hash(await request(tag)) !== digest) throw new Error('Published digest mismatch');
   release.publishedImage = `${repository}:${tag}`;
   release.publishedAt = new Date().toISOString();
@@ -71,7 +78,7 @@ const crypto = require('node:crypto');
 })().catch(err => { console.error(err.message); process.exitCode = 1; });
 JS
     exit 0 ;;
-  *) echo 'Usage: deploy-code.sh [deploy|publish]' >&2; exit 2 ;;
+  *) echo 'Usage: deploy-code.sh [deploy|check|publish]' >&2; exit 2 ;;
 esac
 
 case "$(uname -m)" in
@@ -117,6 +124,10 @@ YAML
 kube() {
   kubectl --namespace="$DEPLOY_NAMESPACE" --request-timeout=15s "$@"
 }
+
+if [[ -z "${SELECTED_IMAGE:-}" ]]; then
+  : "${BUILD_NODE:?Fresh builds must run on the node containing the imported image}"
+fi
 
 # Save the entire previous spec, including the old PVC layout during the first migration.
 kube get deployment trackingtrucks --ignore-not-found -o json > "$bin_dir/previous.json"
@@ -176,6 +187,8 @@ const deployment = {
         }
       },
       spec: {
+        // Fresh builds exist only on the agent's node until publication succeeds.
+        ...(process.env.SELECTED_IMAGE ? {} : {nodeName: process.env.BUILD_NODE}),
         automountServiceAccountToken: false,
         imagePullSecrets: [{name: 'registry-reader'}],
         securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000},

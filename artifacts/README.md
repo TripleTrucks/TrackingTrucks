@@ -37,12 +37,12 @@ You can still access the direct HTTPS address printed by `deploy.sh` after trust
 
 In Jenkins `DEPLOY_CODE`:
 
-- Leave `IMAGE` blank to compile `BRANCH`, then build and upload the image in **Build candidate image**.
+- Leave `IMAGE` blank to compile `BRANCH`, then build and locally import the image in **Build image**; no registry upload occurs yet.
 - Set `IMAGE` to the exact `repository@sha256:digest` printed by a successful job to redeploy those saved bytes. No checkout or compilation happens in this mode.
 
-New images first get unique `candidate-…` tags. After rollout readiness and application checks pass, the **Publish image** stage creates a `release-…` tag pointing to the same digest, without rebuilding. Deployments and rollback use immutable digests. Jenkins archives `release.json` with the digest, published tag and source metadata.
+New images are imported directly into K3s on the Jenkins agent’s node. After rollout readiness and application checks pass, **Publish image** uploads the same image archive to Zot under a `release-…` tag, preserving its digest without rebuilding. Jenkins archives `release.json` for rollback. Fresh deployments are pinned to that node; saved-image deployments pull from Zot.
 
-The image must be uploaded before Kubernetes can deploy it. A later deployment failure can therefore leave an image in Zot; use a **successful Jenkins build's digest** for rollback. Failed health checks skip publication, leaving only the candidate tag. Promotion is handled by the existing deployment script. Deployment failures attempt to restore the previous Deployment. A publication or archive failure after a healthy rollout leaves that application running; a hard node/process failure may prevent automatic restoration.
+Failed deployment checks skip upload entirely; an unused image may remain in the node’s local cache. Deployment failures attempt to restore the previous Deployment. Publication starts only after verification, but an interrupted upload can leave partial registry content. A publication or archive failure leaves the healthy application running locally; a hard node/process failure may prevent automatic restoration. The Jenkins runtime container needs node-level access to the K3s containerd socket, so only trusted maintainers should run this job.
 
 ## Maintain
 

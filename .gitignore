@@ -239,3 +239,6 @@ release/
 # Editor swap files
 *.swp
 *.swo
+
+# Local OCI archive produced by the deployment job
+/image.tar

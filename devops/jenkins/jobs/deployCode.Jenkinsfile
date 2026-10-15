@@ -26,6 +26,9 @@ spec:
       image: node:24-bookworm
       workingDir: /home/jenkins/agent
       command: ["sleep", "infinity"]
+      env:
+        - name: BUILD_NODE
+          valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
       envFrom:
         - configMapRef: {name: registry-settings}
         - configMapRef: {name: deploy-code-settings}
@@ -54,7 +57,23 @@ spec:
         - {name: registry-ca, mountPath: /registry-ca, readOnly: true}
         - {name: buildkit-config, mountPath: /etc/buildkit, readOnly: true}
         - {name: buildkit-state, mountPath: /home/user/.local/share/buildkit}
+    - name: runtime
+      image: rancher/k3s:v1.36.4-k3s1
+      workingDir: /home/jenkins/agent
+      command: ["/bin/sh", "-c", "sleep infinity"]
+      securityContext: {runAsUser: 0, runAsGroup: 0}
+      volumeMounts:
+        - {name: containerd, mountPath: /run/k3s/containerd/containerd.sock}
+    - name: publisher
+      image: quay.io/skopeo/stable:v1.20.0
+      workingDir: /home/jenkins/agent
+      command: ["/bin/sh", "-c", "sleep infinity"]
+      volumeMounts:
+        - {name: registry-auth, mountPath: /registry-auth, readOnly: true}
+        - {name: registry-ca, mountPath: /registry-ca, readOnly: true}
   volumes:
+    - name: containerd
+      hostPath: {path: /run/k3s/containerd/containerd.sock, type: Socket}
     - name: scripts
       configMap: {name: deploy-code-scripts}
     - name: registry-auth
@@ -98,12 +117,12 @@ spec:
                     stage('Compile application') {
                         sh('bash /opt/deploy-code/compile-application.sh')
                         env.IMAGE_REPOSITORY = sh(script: 'printf %s "$IMAGE_REPOSITORY"', returnStdout: true).trim()
-                        env.BUILD_IMAGE = env.IMAGE_REPOSITORY + ':candidate-' + env.RELEASE_ID
+                        env.BUILD_IMAGE = env.IMAGE_REPOSITORY + ':release-' + env.RELEASE_ID
                     }
                 }
             }
             if (!restore) {
-                stage('Build candidate image') {
+                stage('Build image') {
                     container('buildkit') {
                         sh '''
                             buildctl-daemonless.sh build --frontend dockerfile.v0 \
@@ -111,7 +130,7 @@ spec:
                               --opt "build-arg:DEPLOY_COMMIT=$DEPLOY_COMMIT" \
                               --opt "build-arg:BRANCH=$BRANCH" --opt "build-arg:REPO_URL=$REPO_URL" \
                               --opt "build-arg:RELEASE_ID=$RELEASE_ID" \
-                              --output "type=image,name=$BUILD_IMAGE,push=true,oci-mediatypes=true" \
+                              --output "type=oci,name=$BUILD_IMAGE,dest=image.tar" \
                               --metadata-file image-metadata.json
                         '''
                     }
@@ -119,6 +138,12 @@ spec:
                     def digest = metadata['containerimage.digest']
                     if (!(digest ==~ /sha256:[0-9a-f]{64}/)) { error('Builder did not return an image digest') }
                     env.DEPLOY_IMAGE = env.IMAGE_REPOSITORY + '@' + digest
+                    container('runtime') {
+                        sh '''
+                            k3s ctr --namespace k8s.io images import --local --digests --label io.cri-containerd.image=managed --base-name "$IMAGE_REPOSITORY" image.tar
+                            k3s ctr --namespace k8s.io images inspect "$DEPLOY_IMAGE"
+                        '''
+                    }
                 }
             }
             container('build') {
@@ -127,6 +152,16 @@ spec:
                     sh('bash /opt/deploy-code/deploy-code.sh')
                 }
                 stage('Publish image') {
+                    sh('bash /opt/deploy-code/deploy-code.sh check')
+                    if (!restore) {
+                        container('publisher') {
+                            sh '''
+                                skopeo copy --all --preserve-digests \
+                                  --dest-authfile /registry-auth/config.json --dest-cert-dir /registry-ca \
+                                  oci-archive:image.tar "docker://$BUILD_IMAGE"
+                            '''
+                        }
+                    }
                     sh('bash /opt/deploy-code/deploy-code.sh publish')
                     archiveArtifacts(artifacts: 'release.json', fingerprint: true)
                 }

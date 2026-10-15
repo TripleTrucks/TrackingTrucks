@@ -350,15 +350,15 @@ In Jenkins, open **DEPLOY_CODE → Build with Parameters**:
 | `REPO_URL` | Your repository SSH URL |
 | `GIT_CREDENTIALS_ID` | `github-ssh`, or the credential ID you created |
 
-The job serializes builds and has a 40-minute timeout. It uses three agent containers: Jenkins inbound agent, Node for compilation/deployment scripts, and rootless BuildKit for image creation.
+The job serializes builds and has a 40-minute timeout. It uses five agent containers: Jenkins inbound agent, Node for compilation/deployment scripts, rootless BuildKit for image creation, K3s for local image import, and Skopeo for publication. The import container runs as root with the host containerd socket mounted, which grants node-level control: restrict this job to trusted maintainers. Fresh builds are deployed on the agent’s node, matching the current single-node K3s setup.
 
 | Stage | What it does |
 | --- | --- |
 | Prepare release | Creates an isolated workspace and checks out the selected branch; an `IMAGE` deployment skips checkout. |
 | Compile application | Runs `npm ci --include=dev`, TypeScript checking and Vite build; records source metadata. Skipped for a saved image. |
-| Build candidate image | Packages `dist` and release metadata in an Nginx OCI image, uploads a unique `candidate-…` tag to Zot, and captures its digest. Skipped for a saved image. |
-| Deploy and verify | Applies the Deployment/Service using the digest, waits for rollout readiness, and checks the served build metadata and application index. |
-| Publish image | Runs only after deployment verification passes. Creates a `release-…` tag pointing to the verified digest without rebuilding, including for saved-image deployments. |
+| Build image | Packages `dist` and metadata into an OCI archive and imports it into the agent node’s K3s runtime without uploading to Zot. Skipped for a saved image. |
+| Deploy and verify | Applies the Deployment/Service using the digest (fresh builds stay on the import node), waits for rollout readiness, and checks the served build metadata and application index. |
+| Publish image | Runs only after deployment verification passes. Uploads the verified archive under a `release-…` tag without rebuilding or changing the digest. Saved-image deployments only add a release tag. |
 
 The job archives `release.json`, including the published tag, in Jenkins and prints the exact image reference for rollback. The runtime is a non-root Nginx container serving port 5173; the `trackingtrucks` Service exposes port 80. It serves compiled production files rather than Vite's development server.
 
@@ -399,7 +399,7 @@ Use the exact prepared repository and digest, not a mutable tag or the Tailscale
 
 ### Failure and retention behavior
 
-- An image must reach Zot **before** K3s can deploy it. A failed deployment can therefore leave an uploaded image in the registry. Only after readiness and Service checks pass does the Publish image stage create a `release-…` tag. Failed health checks leave the candidate unpromoted. Registry publication and Jenkins completion are not an atomic transaction: if the job is interrupted during publication, inspect the tag/digest before retrying.
+- No new application image is uploaded before readiness and Service checks pass. Failed deployments can leave an image in the node’s local cache, but do not reach publication. Publication failures leave the healthy application running; until upload succeeds it depends on that local cache. An interrupted upload may leave partial content in Zot. Registry publication and Jenkins completion are not atomic. Saved-image deployments still require K3s registry CA trust.
 - The Deployment uses a rolling update with zero unavailable replicas and one surge replica. Failed rollout/health checks attempt to restore the previous Deployment spec. A first-ever failed deployment has no previous release and is scaled down.
 - A hard process/node failure can prevent cleanup. If automatic restoration fails, inspect the Deployment and run a known-good image through the job once the underlying issue is resolved.
 - A release-publication or Jenkins artifact-archive failure after a healthy rollout fails the job but leaves the healthy application running.
