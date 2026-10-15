@@ -1,0 +1,8 @@
+{
+  "id": 1,
+  "username": "sample_trucker",
+  "password": "ExamplePassword123!",
+  "displayname": "Company Name",
+  "role": "owner",
+  "truckIds": [1]
+}

@@ -242,3 +242,5 @@ release/
 
 # Local OCI archive produced by the deployment job
 /image.tar
+Backend/obj/
+Backend/bin/
