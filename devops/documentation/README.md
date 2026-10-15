@@ -391,11 +391,11 @@ Run `DEPLOY_CODE` with `IMAGE` blank and the desired `BRANCH`. Production remain
 ### Restore a previous build
 
 1. Open a **successful** Jenkins build and copy its printed image reference or the `image` value in its archived `release.json`.
-2. Run `DEPLOY_CODE` again, supplying that full `repository@sha256:digest` as `IMAGE`.
+2. Run `DEPLOY_CODE` again, supplying its release tag or full `repository@sha256:digest` as `IMAGE`.
 3. Leave the other parameters at their defaults; Git checkout and compilation are skipped.
 4. Check the new rollout and the browser application.
 
-Use the exact prepared repository and digest, not a mutable tag or the Tailscale browser hostname. The saved image already contains the compiled files and web server: restoring it does not rebuild dependencies.
+A short release tag is resolved in the configured repository before deployment; Kubernetes then uses that immutable digest. Full tag and digest references must use the prepared repository, not the Tailscale browser hostname. The saved image already contains the compiled files and web server: restoring it does not rebuild dependencies.
 
 ### Failure and retention behavior
 

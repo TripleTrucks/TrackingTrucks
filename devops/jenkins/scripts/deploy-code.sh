@@ -5,9 +5,11 @@ set -euo pipefail
 : "${RELEASE_ID:?}"
 : "${IMAGE_REPOSITORY:?}"
 [[ "$DEPLOY_NAMESPACE" == production ]] || { echo 'Only production is supported' >&2; exit 1; }
+if [[ "${1:-deploy}" != resolve ]]; then
 [[ "$DEPLOY_IMAGE" == "$IMAGE_REPOSITORY"@sha256:* && "${DEPLOY_IMAGE##*@}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
   echo 'Deployment requires a digest in the configured image repository' >&2; exit 1;
 }
+fi
 [[ "$RELEASE_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || exit 1
 # Promote only the digest whose deployment passed the readiness and Service checks.
 # Guard publication and record its verified digest without a separate helper script.
@@ -20,15 +22,12 @@ if (release.status !== 'verified' || release.image !== process.env.DEPLOY_IMAGE 
     release.deployment !== process.env.RELEASE_ID) throw new Error('Deployment has not been verified');
 JS
     exit 0 ;;
-  publish)
-    node <<'JS'
+  resolve|publish)
+    ACTION="$1" node <<'JS'
 const fs = require('node:fs');
 const https = require('node:https');
 const crypto = require('node:crypto');
 (async () => {
-  const release = JSON.parse(fs.readFileSync('release.json'));
-  if (release.status !== 'verified' || release.image !== process.env.DEPLOY_IMAGE ||
-      release.deployment !== process.env.RELEASE_ID) throw new Error('Deployment has not been verified');
   const repository = process.env.IMAGE_REPOSITORY;
   const split = repository.indexOf('/');
   const host = repository.slice(0, split);
@@ -63,6 +62,24 @@ const crypto = require('node:crypto');
     req.end(body);
   });
   const hash = bytes => 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
+  if (process.env.ACTION === 'resolve') {
+    const selected = process.env.DEPLOY_IMAGE;
+    let reference = selected;
+    if (selected.startsWith(repository + '@')) reference = selected.slice(repository.length + 1);
+    else if (selected.startsWith(repository + ':')) reference = selected.slice(repository.length + 1);
+    if (!/^sha256:[0-9a-f]{64}$/.test(reference) && !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(reference)) {
+      throw new Error('IMAGE must be a tag or a full tag/digest reference in the configured repository');
+    }
+    const bytes = await request(reference);
+    if (!types.includes(JSON.parse(bytes).mediaType)) throw new Error('Expected an OCI image manifest or index');
+    const resolved = hash(bytes);
+    if (reference.startsWith('sha256:') && reference !== resolved) throw new Error('Source manifest digest mismatch');
+    console.log(`${repository}@${resolved}`);
+    return;
+  }
+  const release = JSON.parse(fs.readFileSync('release.json'));
+  if (release.status !== 'verified' || release.image !== process.env.DEPLOY_IMAGE ||
+      release.deployment !== process.env.RELEASE_ID) throw new Error('Deployment has not been verified');
   const manifest = await request(digest);
   if (hash(manifest) !== digest) throw new Error('Source manifest digest mismatch');
   const type = JSON.parse(manifest).mediaType;
@@ -78,7 +95,7 @@ const crypto = require('node:crypto');
 })().catch(err => { console.error(err.message); process.exitCode = 1; });
 JS
     exit 0 ;;
-  *) echo 'Usage: deploy-code.sh [deploy|check|publish]' >&2; exit 2 ;;
+  *) echo 'Usage: deploy-code.sh [deploy|resolve|check|publish]' >&2; exit 2 ;;
 esac
 
 case "$(uname -m)" in

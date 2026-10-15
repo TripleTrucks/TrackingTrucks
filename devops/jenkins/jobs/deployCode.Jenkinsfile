@@ -2,7 +2,7 @@ properties([
     disableConcurrentBuilds(),
     buildDiscarder(logRotator(numToKeepStr: '30')),
     parameters([
-        string(name: 'IMAGE', defaultValue: '', description: 'Saved repository@sha256:digest from a successful build. Blank builds BRANCH.'),
+        string(name: 'IMAGE', defaultValue: '', description: 'Saved release tag or repository@sha256:digest. Blank builds BRANCH.'),
         string(name: 'REPO_URL', defaultValue: 'git@github.com:ZenMastering/TrackingTrucks.git', description: 'Git repository SSH URL'),
         string(name: 'BRANCH', defaultValue: 'main', description: 'Branch to build when IMAGE is blank'),
         string(name: 'GIT_CREDENTIALS_ID', defaultValue: 'github-ssh', description: 'Jenkins SSH credential ID')
@@ -99,6 +99,7 @@ spec:
                     deleteDir()
                     if (restore) {
                         env.DEPLOY_IMAGE = env.SELECTED_IMAGE
+                        env.DEPLOY_IMAGE = sh(script: 'bash /opt/deploy-code/deploy-code.sh resolve', returnStdout: true).trim()
                         env.DEPLOY_COMMIT = ''
                         env.BRANCH = ''
                     } else {

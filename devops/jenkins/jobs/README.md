@@ -4,7 +4,7 @@ First install the cluster registry following [artifacts/README.md](../../../arti
 
 ## Parameters
 
-- `IMAGE`: saved `repository@sha256:digest` from a successful Jenkins run. Leave blank to build new code.
+- `IMAGE`: saved release tag (for example `release-build-24-20261015T010447`) or `repository@sha256:digest` from a successful Jenkins run. Tags are resolved to a digest before deployment. Leave blank to build new code.
 - `BRANCH`: branch to build, default `main`; ignored when IMAGE is supplied.
 - `REPO_URL`: Git repository SSH URL.
 - `GIT_CREDENTIALS_ID`: Jenkins SSH credential ID, default `github-ssh`.

@@ -38,7 +38,7 @@ You can still access the direct HTTPS address printed by `deploy.sh` after trust
 In Jenkins `DEPLOY_CODE`:
 
 - Leave `IMAGE` blank to compile `BRANCH`, then build and locally import the image in **Build image**; no registry upload occurs yet.
-- Set `IMAGE` to the exact `repository@sha256:digest` printed by a successful job to redeploy those saved bytes. No checkout or compilation happens in this mode.
+- Set `IMAGE` to a saved release tag or the exact `repository@sha256:digest` printed by a successful job to redeploy those saved bytes. No checkout or compilation happens in this mode.
 
 New images are imported directly into K3s on the Jenkins agent’s node. After rollout readiness and application checks pass, **Publish image** uploads the same image archive to Zot under a `release-…` tag, preserving its digest without rebuilding. Jenkins archives `release.json` for rollback. Fresh deployments are pinned to that node; saved-image deployments pull from Zot.
 
