@@ -15,10 +15,11 @@ Production hostname/namespace are read from the operator's `devops/jenkins/envir
 
 1. **Prepare release**: select an existing image or check out the branch.
 2. **Compile application**: run `npm ci` and `npm run build` for new images.
-3. **Push artifacts**: build an OCI image from compiled assets and push it to Zot. Skipped for an existing image.
-4. **Deploy and verify**: deploy the immutable digest, wait for readiness and check the application through its Service. Archive `release.json` after verification.
+3. **Build candidate image**: build an OCI image and upload a `candidate-…` tag so Kubernetes can pull it. Skipped for an existing image.
+4. **Deploy and verify**: deploy the immutable digest, wait for readiness and check the application through its Service.
+5. **Publish image**: only after verification succeeds, add a `release-…` tag pointing to the exact same digest and archive `release.json`. No rebuild occurs. A healthy saved-image deployment also gets a new release tag.
 
-Use the image digest printed by a successful job as `IMAGE` to roll back. Uploaded images from failed deployments can remain in the registry; successful Jenkins builds identify the verified releases.
+Use the image digest printed by a successful job as `IMAGE` to roll back. Failed deployments may leave candidate images, but never reach the Publish image stage. Published releases have `release-…` tags; rollback still uses the immutable digest. A publication or archive failure after a healthy rollout fails the job without stopping the healthy application. Jenkins completion and registry tagging are not an atomic transaction; an interruption during publication may require checking the tag.
 
 Production keeps running during compilation. Failed deployments attempt to restore the previous Deployment. The application serves compiled assets using Nginx on port 5173 behind the existing Service on port 80. Existing external routing to the Service is unchanged.
 

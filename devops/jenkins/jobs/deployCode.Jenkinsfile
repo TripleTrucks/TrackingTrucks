@@ -34,6 +34,8 @@ spec:
         limits: {cpu: "2", memory: 2Gi}
       volumeMounts:
         - {name: scripts, mountPath: /opt/deploy-code, readOnly: true}
+        - {name: registry-auth, mountPath: /registry-auth, readOnly: true}
+        - {name: registry-ca, mountPath: /registry-ca, readOnly: true}
     - name: buildkit
       image: moby/buildkit:v0.23.2-rootless
       workingDir: /home/jenkins/agent
@@ -96,12 +98,12 @@ spec:
                     stage('Compile application') {
                         sh('bash /opt/deploy-code/compile-application.sh')
                         env.IMAGE_REPOSITORY = sh(script: 'printf %s "$IMAGE_REPOSITORY"', returnStdout: true).trim()
-                        env.BUILD_IMAGE = env.IMAGE_REPOSITORY + ':' + env.RELEASE_ID
+                        env.BUILD_IMAGE = env.IMAGE_REPOSITORY + ':candidate-' + env.RELEASE_ID
                     }
                 }
             }
             if (!restore) {
-                stage('Push artifacts') {
+                stage('Build candidate image') {
                     container('buildkit') {
                         sh '''
                             buildctl-daemonless.sh build --frontend dockerfile.v0 \
@@ -124,7 +126,10 @@ spec:
                 stage('Deploy and verify') {
                     sh('bash /opt/deploy-code/deploy-code.sh')
                 }
-                archiveArtifacts(artifacts: 'release.json', fingerprint: true)
+                stage('Publish image') {
+                    sh('bash /opt/deploy-code/deploy-code.sh publish')
+                    archiveArtifacts(artifacts: 'release.json', fingerprint: true)
+                }
                 echo('Saved image for rollback: ' + env.DEPLOY_IMAGE)
             }
         }

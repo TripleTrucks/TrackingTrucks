@@ -356,10 +356,11 @@ The job serializes builds and has a 40-minute timeout. It uses three agent conta
 | --- | --- |
 | Prepare release | Creates an isolated workspace and checks out the selected branch; an `IMAGE` deployment skips checkout. |
 | Compile application | Runs `npm ci --include=dev`, TypeScript checking and Vite build; records source metadata. Skipped for a saved image. |
-| Push artifacts | Packages `dist` and release metadata in an Nginx OCI image, uploads a unique `build-…` tag to Zot, and captures its digest. Skipped for a saved image. |
+| Build candidate image | Packages `dist` and release metadata in an Nginx OCI image, uploads a unique `candidate-…` tag to Zot, and captures its digest. Skipped for a saved image. |
 | Deploy and verify | Applies the Deployment/Service using the digest, waits for rollout readiness, and checks the served build metadata and application index. |
+| Publish image | Runs only after deployment verification passes. Creates a `release-…` tag pointing to the verified digest without rebuilding, including for saved-image deployments. |
 
-The job then archives `release.json` in Jenkins and prints the exact image reference for rollback. The runtime is a non-root Nginx container serving port 5173; the `trackingtrucks` Service exposes port 80. It serves compiled production files rather than Vite's development server.
+The job archives `release.json`, including the published tag, in Jenkins and prints the exact image reference for rollback. The runtime is a non-root Nginx container serving port 5173; the `trackingtrucks` Service exposes port 80. It serves compiled production files rather than Vite's development server.
 
 Confirm the first deployment:
 
@@ -398,10 +399,10 @@ Use the exact prepared repository and digest, not a mutable tag or the Tailscale
 
 ### Failure and retention behavior
 
-- An image must reach Zot **before** K3s can deploy it. A failed deployment can therefore leave an uploaded image in the registry. Successful Jenkins builds identify verified releases; the registry does not enforce a separate successful-image promotion process.
+- An image must reach Zot **before** K3s can deploy it. A failed deployment can therefore leave an uploaded image in the registry. Only after readiness and Service checks pass does the Publish image stage create a `release-…` tag. Failed health checks leave the candidate unpromoted. Registry publication and Jenkins completion are not an atomic transaction: if the job is interrupted during publication, inspect the tag/digest before retrying.
 - The Deployment uses a rolling update with zero unavailable replicas and one surge replica. Failed rollout/health checks attempt to restore the previous Deployment spec. A first-ever failed deployment has no previous release and is scaled down.
 - A hard process/node failure can prevent cleanup. If automatic restoration fails, inspect the Deployment and run a known-good image through the job once the underlying issue is resolved.
-- A Jenkins artifact-archive failure after a healthy rollout fails the job but leaves the healthy application running.
+- A release-publication or Jenkins artifact-archive failure after a healthy rollout fails the job but leaves the healthy application running.
 - Jenkins keeps 30 build records. Zot currently retains images independently, with no automatic garbage collection or retention policy. Save release digests outside expiring job history if they must remain discoverable long-term.
 - The legacy `trackingtrucks-releases` PVC is still defined but new image deployments do not mount it. Keep it through migration from the original workspace deployment so the previous spec can be restored if necessary.
 

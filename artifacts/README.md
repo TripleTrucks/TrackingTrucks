@@ -37,12 +37,12 @@ You can still access the direct HTTPS address printed by `deploy.sh` after trust
 
 In Jenkins `DEPLOY_CODE`:
 
-- Leave `IMAGE` blank to compile `BRANCH`, then build and upload the image in **Push artifacts**.
+- Leave `IMAGE` blank to compile `BRANCH`, then build and upload the image in **Build candidate image**.
 - Set `IMAGE` to the exact `repository@sha256:digest` printed by a successful job to redeploy those saved bytes. No checkout or compilation happens in this mode.
 
-Images have unique `build-…` tags for browsing. Deployments use immutable digests. Successful jobs archive `release.json` with the digest and source metadata.
+New images first get unique `candidate-…` tags. After rollout readiness and application checks pass, the **Publish image** stage creates a `release-…` tag pointing to the same digest, without rebuilding. Deployments and rollback use immutable digests. Jenkins archives `release.json` with the digest, published tag and source metadata.
 
-The image must be uploaded before Kubernetes can deploy it. A later deployment failure can therefore leave an image in Zot; use a **successful Jenkins build's digest** for rollback. There is no separate promotion service or custom registry API helper. Deployment failures attempt to restore the previous Deployment. An archive failure after a healthy rollout leaves that application running; a hard node/process failure may prevent automatic restoration.
+The image must be uploaded before Kubernetes can deploy it. A later deployment failure can therefore leave an image in Zot; use a **successful Jenkins build's digest** for rollback. Failed health checks skip publication, leaving only the candidate tag. Promotion is handled by the existing deployment script. Deployment failures attempt to restore the previous Deployment. A publication or archive failure after a healthy rollout leaves that application running; a hard node/process failure may prevent automatic restoration.
 
 ## Maintain
 

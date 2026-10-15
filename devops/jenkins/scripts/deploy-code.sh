@@ -9,6 +9,71 @@ set -euo pipefail
   echo 'Deployment requires a digest in the configured image repository' >&2; exit 1;
 }
 [[ "$RELEASE_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || exit 1
+# Promote only the digest whose deployment passed the readiness and Service checks.
+# Reuse this script so publication does not require a separate helper or tool image.
+case "${1:-deploy}" in
+  deploy) ;;
+  publish)
+    node <<'JS'
+const fs = require('node:fs');
+const https = require('node:https');
+const crypto = require('node:crypto');
+(async () => {
+  const release = JSON.parse(fs.readFileSync('release.json'));
+  if (release.status !== 'verified' || release.image !== process.env.DEPLOY_IMAGE ||
+      release.deployment !== process.env.RELEASE_ID) throw new Error('Deployment has not been verified');
+  const repository = process.env.IMAGE_REPOSITORY;
+  const split = repository.indexOf('/');
+  const host = repository.slice(0, split);
+  const name = repository.slice(split + 1);
+  const digest = process.env.DEPLOY_IMAGE.split('@')[1];
+  const tag = 'release-' + process.env.RELEASE_ID;
+  const auth = JSON.parse(fs.readFileSync('/registry-auth/config.json')).auths?.[host]?.auth;
+  if (!auth) throw new Error('Missing registry credentials');
+  const ca = fs.readFileSync('/registry-ca/ca.crt');
+  const types = ['application/vnd.oci.image.manifest.v1+json', 'application/vnd.oci.image.index.v1+json'];
+  const request = (reference, method = 'GET', body, type) => new Promise((resolve, reject) => {
+    const req = https.request(`https://${host}/v2/${name}/manifests/${reference}`, {
+      method, ca, timeout: 30000,
+      headers: {Authorization: `Basic ${auth}`, Accept: types.join(', '),
+        ...(body ? {'Content-Type': type, 'Content-Length': body.length} : {})}
+    }, res => {
+      const chunks = [];
+      let size = 0;
+      res.on('data', chunk => {
+        size += chunk.length;
+        if (size > 4 * 1024 * 1024) res.destroy(new Error('Manifest exceeds 4 MiB'));
+        else chunks.push(chunk);
+      });
+      res.on('error', reject);
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) reject(new Error(`Registry ${method}: HTTP ${res.statusCode}`));
+        else resolve(Buffer.concat(chunks));
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Registry request timed out')));
+    req.end(body);
+  });
+  const hash = bytes => 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
+  const manifest = await request(digest);
+  if (hash(manifest) !== digest) throw new Error('Source manifest digest mismatch');
+  const type = JSON.parse(manifest).mediaType;
+  if (!types.includes(type)) throw new Error('Expected an OCI image manifest or index');
+  // Add a new immutable tag to the SAME manifest; never rebuild the verified image.
+  await request(tag, 'PUT', manifest, type);
+  if (hash(await request(tag)) !== digest) throw new Error('Published digest mismatch');
+  release.publishedImage = `${repository}:${tag}`;
+  release.publishedAt = new Date().toISOString();
+  release.status = 'published';
+  fs.writeFileSync('release.json', JSON.stringify(release, null, 2) + '\n');
+  console.log(`Published healthy image: ${release.publishedImage}`);
+})().catch(err => { console.error(err.message); process.exitCode = 1; });
+JS
+    exit 0 ;;
+  *) echo 'Usage: deploy-code.sh [deploy|publish]' >&2; exit 2 ;;
+esac
+
 case "$(uname -m)" in
   x86_64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
