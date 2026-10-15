@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trackingtrucks-releases
+  namespace: production
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deploy-code
+  namespace: production
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deploy-code
+  namespace: production
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deploy-code
+  namespace: production
+subjects:
+  - kind: ServiceAccount
+    name: deploy-code
+    namespace: production
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: deploy-code
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-build-agents
+  namespace: production
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["pods/log", "events", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-build-agents
+  namespace: production
+subjects:
+  - kind: ServiceAccount
+    name: jenkins
+    namespace: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-build-agents

@@ -1,0 +1,12 @@
+environments:
+  production:
+    namespace: production
+    hostname: production.tail7af369.ts.net
+
+  testing:
+    namespace: testing
+    hostname: testing.tail7af369.ts.net
+
+  staging:
+    namespace: staging
+    hostname: staging.tail7af369.ts.net

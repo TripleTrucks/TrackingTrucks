@@ -1,0 +1,7 @@
+{
+  "id": 1,
+  "truckname": "Sample Truck",
+  "tags": ["Mexican"],
+  "profileIds": [1],
+  "scheduleIds": [1]
+}

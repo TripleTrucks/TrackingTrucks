@@ -225,3 +225,22 @@ dist-electron/
 release/
 .env.*
 !.env.example
+
+# Private registry setup: passwords, Docker credentials, TLS keys and generated Helm values
+/artifacts/.local/
+
+# Jenkins-generated image context and release metadata (when run locally)
+/image-context/
+/image-metadata.json
+/release.json
+/.deploy-code-built
+/.deploy-code-release.json
+
+# Editor swap files
+*.swp
+*.swo
+
+# Local OCI archive produced by the deployment job
+/image.tar
+Backend/obj/
+Backend/bin/

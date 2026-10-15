@@ -14,10 +14,11 @@ namespace Backend
     {
         static Dictionary<string, string> databaseProfileVars = new Dictionary<string, string>();
         static Dictionary<string, string> databaseSchedulesVars = new Dictionary<string, string>();
+        static Dictionary<string, string> databaseTrucksVars = new Dictionary<string, string>();
 
         public static void parseProfilesDatabase()
         {
-            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Profiles");
+            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Profiles");
             foreach (FileInfo file in di.GetFiles())
             {
                 string jsonString = File.ReadAllText(file.FullName);
@@ -27,7 +28,7 @@ namespace Backend
 
         public static void parseSchedulesDatabase()
         {
-            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Schedules");
+            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Schedules");
             foreach (FileInfo file in di.GetFiles())
             {
                 string jsonString = File.ReadAllText(file.FullName);
@@ -35,24 +36,40 @@ namespace Backend
             }
         }
 
+        public static void parseTrucksDatabase()
+        {
+            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Trucks");
+            foreach (FileInfo file in di.GetFiles())
+            {
+                string jsonString = File.ReadAllText(file.FullName);
+                Console.WriteLine(jsonString);
+            }
+        }
         public static void writeProfilesDatabase(string fileName, string json)
         {
             var options = new JsonSerializerOptions { WriteIndented = true };
             string jsonString = JsonSerializer.Serialize(json);
-            File.WriteAllText("localRepoCopy\\Profiles\\" + fileName, jsonString);
+            File.WriteAllText("localRepoCopy\\Database\\Profiles\\" + fileName, jsonString);
         }
 
         public static void writeSchedulesDatabase(string fileName, string json)
         {
             var options = new JsonSerializerOptions { WriteIndented = true };
             string jsonString = JsonSerializer.Serialize(json);
-            File.WriteAllText("localRepoCopy\\Schedules\\" + fileName, jsonString);
+            File.WriteAllText("localRepoCopy\\Database\\Schedules\\" + fileName, jsonString);
+        }
+
+        public static void writeTrucksDatabase(string fileName, string json)
+        {
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            string jsonString = JsonSerializer.Serialize(json);
+            File.WriteAllText("localRepoCopy\\Database\\Trucks\\" + fileName, jsonString);
         }
 
         public static void pushGitDatabase(string commitMessage, string username, string token)
         {
             string localPath = "localRepoCopy";
-            string targetBranch = "octowalrus/Scrum-206";
+            string targetBranch = "octowalrus/Scrum-218";
             try
             {
                 using (var repo = new Repository(localPath))
@@ -101,17 +118,17 @@ namespace Backend
             }
         }
 
-        public static void clearFolder()
+        public static void clearFolder(string folderName)
         {
-            if (Directory.Exists("localRepoCopy"))
+            if (Directory.Exists(folderName))
             {
-                DirectoryInfo di = new DirectoryInfo("localRepoCopy");
+                DirectoryInfo di = new DirectoryInfo(folderName);
 
                 foreach (FileInfo file in di.EnumerateFiles())
                 {
                     file.Delete();
                 }
-                di = new DirectoryInfo("localRepoCopy");
+                di = new DirectoryInfo(folderName);
 
                 foreach (FileInfo file in di.GetFiles("*", SearchOption.AllDirectories))
                 {
@@ -143,7 +160,7 @@ namespace Backend
         {
             string repoUrl = "https://github.com/ZenMastering/TrackingTrucks.git";
             string localPath = "localRepoCopy";
-            string targetBranch = "octowalrus/Scrum-206";
+            string targetBranch = "octowalrus/Scrum-218";
             var cloneOptions = new CloneOptions
             {
                 BranchName = targetBranch
