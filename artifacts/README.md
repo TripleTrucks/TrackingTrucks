@@ -11,6 +11,7 @@ Run from the project root. The setup discovers your single-node cluster's intern
 ```bash
 python3 artifacts/prepare.py
 bash artifacts/deploy.sh
+bash artifacts/deploy.sh --serve
 bash artifacts/trust-k3s.sh
 kubectl get nodes
 bash devops/jenkins/deployJenkins.sh
@@ -22,7 +23,15 @@ bash devops/jenkins/deployJenkins.sh
 
 Passwords, certificates and generated private configuration stay in gitignored `artifacts/.local/`. Re-running preparation preserves them. Reserve the server IP in DHCP; changing the address requires updating the certificate and registry clients.
 
-Browse the HTTPS address printed by `deploy.sh` (also saved in `.local/endpoint`). Trust `.local/ca.crt` on your workstation and log in as `reader` with `.local/reader.password`. Port 30500 is exposed on node interfaces; restrict access to your LAN/tailnet as appropriate. Authentication and certificate verification remain enabled.
+## DNS and Tailscale access
+
+Open **https://registry.tail7af369.ts.net** from a tailnet-connected device. The `registry` Tailscale Service must exist with port 443 allowed. Run `bash artifacts/deploy.sh --serve` on a K3s node to add its route; this leaves other Tailscale services in place. Approve the service host in the Tailscale console if required. For another service name, set `TAILSCALE_SERVICE` when running that command.
+
+Tailscale manages the browser-facing HTTPS certificate and forwards to Zot's discovered NodePort on loopback. The loopback HTTPS backend uses `https+insecure` because its private certificate does not name `127.0.0.1`; browser certificate validation and registry authentication remain enabled. Log in as `reader` with the password in `.local/reader.password`. No Cloudflare tunnel is needed for this tailnet URL.
+
+Kubernetes automatically provides **artifacts-zot.artifacts.svc.cluster.local** for the Service (port 5000). Cluster DNS is normally only available inside pods. Image pulls run on K3s nodes, so Jenkins/K3s continue using the prepared node address in `.local/endpoint` and its private CA. Adding the Tailscale browsing address does not rename existing images or change their credentials. The existing registry certificate covers the prepared address, not this Kubernetes Service DNS name. Do not substitute the Service name in image references without migrating TLS and credentials too.
+
+You can still access the direct HTTPS address printed by `deploy.sh` after trusting `.local/ca.crt`. NodePort 30500 is exposed on node interfaces; restrict access to your LAN/tailnet as appropriate.
 
 ## Deploy an image
 
