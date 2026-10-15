@@ -12,6 +12,7 @@ namespace Backend
 
         static void Main(string[] args)
         {
+            API.startAPI();
             string apiKey = "";
             DotNetEnv.Env.TraversePath().Load();
             apiKey = Environment.GetEnvironmentVariable("API_PRIVATE_KEY");
