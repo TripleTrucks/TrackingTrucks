@@ -140,8 +140,8 @@ spec:
                     env.DEPLOY_IMAGE = env.IMAGE_REPOSITORY + '@' + digest
                     container('runtime') {
                         sh '''
-                            k3s ctr --namespace k8s.io images import --local --digests --label io.cri-containerd.image=managed --base-name "$IMAGE_REPOSITORY" image.tar
-                            k3s ctr --namespace k8s.io images inspect "$DEPLOY_IMAGE"
+                            ctr --address /run/k3s/containerd/containerd.sock --namespace k8s.io images import --local --digests --label io.cri-containerd.image=managed --base-name "$IMAGE_REPOSITORY" image.tar
+                            ctr --address /run/k3s/containerd/containerd.sock --namespace k8s.io images inspect "$DEPLOY_IMAGE"
                         '''
                     }
                 }
