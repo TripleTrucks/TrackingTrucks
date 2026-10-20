@@ -1,6 +1,7 @@
 {
     "id" : 1,
     "truckIds" : [1],
+    "last-revised": "10/20/2026",
     "location": {
       "name": "Downtown Retail Center",
       "address_components": {
