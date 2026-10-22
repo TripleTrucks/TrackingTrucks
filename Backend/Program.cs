@@ -20,7 +20,7 @@ namespace Backend
             Database.pullGitDatabase();
             Database.parseProfilesDatabase();
             Database.parseSchedulesDatabase();
-            Console.Write("Would you like to add Profile(1) or Schedule(2)? Please enter 1 or 2: ");
+            Console.Write("Would you like to add Profile(1), Schedule(2), or Trucks(3)? Please enter 1, 2, or 3: ");
             int input = Convert.ToInt32(Console.ReadLine());
             if (input == 1)
             {
@@ -37,6 +37,14 @@ namespace Backend
                 Console.WriteLine("Please input schedule json:");
                 string jsonInput = Console.ReadLine();
                 Database.writeSchedulesDatabase(scheduleName, jsonInput);
+            }
+            if (input == 3)
+            {
+                Console.WriteLine("Please input truck name:");
+                string truckName = Console.ReadLine();
+                Console.WriteLine("Please input truck json:");
+                string jsonInput = Console.ReadLine();
+                Database.writeTrucksDatabase(truckName, jsonInput);
             }
             Database.pushGitDatabase("Backend Automated Commit", "octowalrus", apiKey);
             Database.clearFolder("..\\localRepoCopy");
