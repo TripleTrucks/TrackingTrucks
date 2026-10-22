@@ -158,7 +158,7 @@ namespace Backend
         }
         public static void pullGitDatabase()
         {
-            string repoUrl = "https://github.com/ZenMastering/TrackingTrucks.git";
+            string repoUrl = "https://github.com/TripleTrucks/TrackingTrucks.git";
             string localPath = "localRepoCopy";
             string targetBranch = "octowalrus/Scrum-218";
             var cloneOptions = new CloneOptions

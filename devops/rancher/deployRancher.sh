@@ -11,7 +11,7 @@ case "$MODE" in
     echo 'Usage: bash devops/rancher/deployRancher.sh [deploy|render]'
     echo 'Defaults: Rancher 2.15.1, one replica, Traefik, HTTPS 443, Rancher-generated TLS.'
     echo 'Settings: devops/orchestrator.yaml and devops/rancher/rancherConfig.yaml.'
-    echo 'Overrides: RANCHER_HOSTNAME, RANCHER_CHART_VERSION, KUBE_CONTEXT, DEPLOY_TIMEOUT.'
+    echo 'Overrides: RANCHER_CHART_VERSION, KUBE_CONTEXT, DEPLOY_TIMEOUT. Hostname comes only from orchestrator.yaml.'
     exit 0 ;;
   deploy|render) ;;
   *) echo "Unknown mode: $MODE" >&2; exit 2 ;;

@@ -3,7 +3,7 @@ properties([
     buildDiscarder(logRotator(numToKeepStr: '30')),
     parameters([
         string(name: 'IMAGE', defaultValue: '', description: 'Saved release tag or repository@sha256:digest. Blank builds BRANCH.'),
-        string(name: 'REPO_URL', defaultValue: 'git@github.com:ZenMastering/TrackingTrucks.git', description: 'Git repository SSH URL'),
+        string(name: 'REPO_URL', defaultValue: 'git@github.com:TripleTrucks/TrackingTrucks.git', description: 'Git repository SSH URL'),
         string(name: 'BRANCH', defaultValue: 'main', description: 'Branch to build when IMAGE is blank'),
         string(name: 'GIT_CREDENTIALS_ID', defaultValue: 'github-ssh', description: 'Jenkins SSH credential ID')
     ])

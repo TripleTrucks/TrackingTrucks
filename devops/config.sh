@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared YAML configuration loader. Source from deployment scripts.
-# Explicit environment overrides take precedence over the YAML.
+# Hostname always comes from YAML; other settings allow environment overrides.
 _load_orchestrator_config() {
   local config_file assignments
   config_file="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/orchestrator.yaml"
@@ -22,7 +22,7 @@ fields = {
     'JENKINS_CHART_VERSION': ('jenkins', 'chart_version'),
 }
 for variable, (section, key) in fields.items():
-    value = os.environ.get(variable) or config[section][key]
+    value = config[section][key] if variable == 'RANCHER_HOSTNAME' else (os.environ.get(variable) or config[section][key])
     if not isinstance(value, str) or ('\n' in value or '\r' in value):
         raise ValueError(f'{section}.{key} must be a single-line string')
     if not value and variable != 'KUBE_CONTEXT':
