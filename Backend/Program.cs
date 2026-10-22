@@ -12,12 +12,12 @@ namespace Backend
 
         static void Main(string[] args)
         {
-            API.startAPI();
             string apiKey = "";
             DotNetEnv.Env.TraversePath().Load();
             apiKey = Environment.GetEnvironmentVariable("API_PRIVATE_KEY");
             Database.clearFolder("localRepoCopy");
             Database.pullGitDatabase();
+            API.startAPI(args);
             Database.parseProfilesDatabase();
             Database.parseSchedulesDatabase();
             Console.Write("Would you like to add Profile(1) or Schedule(2)? Please enter 1 or 2: ");
@@ -28,7 +28,7 @@ namespace Backend
                 string profileName = Console.ReadLine();
                 Console.WriteLine("Please input profile json:");
                 string jsonInput = Console.ReadLine();
-                Database.writeProfilesDatabase(profileName, jsonInput); 
+                Database.writeProfilesDatabase(profileName, jsonInput);
             }
             if (input == 2)
             {

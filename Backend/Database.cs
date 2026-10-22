@@ -69,7 +69,7 @@ namespace Backend
         public static void pushGitDatabase(string commitMessage, string username, string token)
         {
             string localPath = "localRepoCopy";
-            string targetBranch = "octowalrus/Scrum-218";
+            string targetBranch = "development";
             try
             {
                 using (var repo = new Repository(localPath))
@@ -158,9 +158,9 @@ namespace Backend
         }
         public static void pullGitDatabase()
         {
-            string repoUrl = "https://github.com/TripleTrucks/TrackingTrucks.git";
+            string repoUrl = "https://github.com/ZenMastering/TrackingTrucks.git";
             string localPath = "localRepoCopy";
-            string targetBranch = "octowalrus/Scrum-218";
+            string targetBranch = "development";
             var cloneOptions = new CloneOptions
             {
                 BranchName = targetBranch
