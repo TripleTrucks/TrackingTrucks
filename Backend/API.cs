@@ -12,6 +12,8 @@ namespace Backend
 {
     public class API
     {
+        private static readonly object databaseWriteLock = new();
+
         public static void startAPI(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
@@ -20,14 +22,14 @@ namespace Backend
             // Endpoint to get all trucks.
             app.MapGet("/api/Trucks", () =>
             {
-                var data = GetDataFromDirectory("localRepoCopy\\Database\\Trucks");
+                var data = GetDataFromDirectory(GetCollectionDirectory("Trucks"));
                 return Results.Ok(new { Data = data, Status = "Success", Timestamp = DateTime.UtcNow });
             });
 
             // Endpoint to get a truck by Id. Fauls gracefully if truck data is invalid
             app.MapGet("/api/Trucks/{id:int}", (int id) =>
             {
-                var truck = GetDataFromDirectory("localRepoCopy\\Database\\Trucks")
+                var truck = GetDataFromDirectory(GetCollectionDirectory("Trucks"))
                     .OfType<JsonObject>()
                     .FirstOrDefault(record => record["id"]?.GetValue<int>() == id);
 
@@ -68,7 +70,7 @@ namespace Backend
                     });
                 }
 
-                var existingTruck = GetDataFromDirectory("localRepoCopy\\Database\\Trucks")
+                var existingTruck = GetDataFromDirectory(GetCollectionDirectory("Trucks"))
                     .OfType<JsonObject>()
                     .Any(record =>
                         record["id"] is JsonValue recordId &&
@@ -80,15 +82,11 @@ namespace Backend
                     return Results.Conflict(new { error = $"Truck id {id} already exists." });
                 }
 
-                var filePath = Path.Combine(
-                    "localRepoCopy",
-                    "Database",
-                    "Trucks",
-                    $"{id}.json");
-
-                File.WriteAllText(
-                    filePath,
-                    truck.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                lock (databaseWriteLock)
+                {
+                    Database.writeTrucksDatabase($"{id}.json", truck.ToJsonString());
+                    PushDatabaseChanges($"Create truck {id}");
+                }
 
                 return Results.Created($"/api/Trucks/{id}", truck);
             });
@@ -131,10 +129,11 @@ namespace Backend
                     });
                 }
 
-                var filePath = Path.Combine(trucksDirectory, $"{id}.json");
-                File.WriteAllText(
-                    filePath,
-                    updatedTruck.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                lock (databaseWriteLock)
+                {
+                    Database.writeTrucksDatabase($"{id}.json", updatedTruck.ToJsonString());
+                    PushDatabaseChanges($"Update truck {id}");
+                }
 
                 return Results.Ok(updatedTruck);
             });
@@ -164,8 +163,11 @@ namespace Backend
                     });
                 }
 
-                var filePath = Path.Combine(trucksDirectory, $"{id}.json");
-                File.Delete(filePath);
+                lock (databaseWriteLock)
+                {
+                    Database.deleteTrucksDatabase($"{id}.json");
+                    PushDatabaseChanges($"Delete truck {id}");
+                }
 
                 return Results.NoContent();
             });
@@ -173,14 +175,14 @@ namespace Backend
             // Endpoint to get all schedules
             app.MapGet("/api/Schedules", () =>
             {
-                var data = GetDataFromDirectory("localRepoCopy\\Database\\Schedules");
+                var data = GetDataFromDirectory(GetCollectionDirectory("Schedules"));
                 return Results.Ok(new { Data = data, Status = "Success", Timestamp = DateTime.UtcNow });
             });
 
             // Endpoint to get all profiles
             app.MapGet("/api/Profiles", () =>
             {
-                var data = GetDataFromDirectory("localRepoCopy\\Database\\Profiles");
+                var data = GetDataFromDirectory(GetCollectionDirectory("Profiles"));
                 return Results.Ok(new { Data = data, Status = "Success", Timestamp = DateTime.UtcNow });
             });
 
@@ -191,6 +193,11 @@ namespace Backend
             });
 
             app.Run();
+        }
+
+        private static string GetCollectionDirectory(string collectionName)
+        {
+            return Path.Combine("localRepoCopy", "Database", collectionName);
         }
 
         private static List<object> GetDataFromDirectory(string folderPath)
@@ -216,6 +223,18 @@ namespace Backend
             }
 
             return list;
+        }
+
+        private static void PushDatabaseChanges(string commitMessage)
+        {
+            string token = Environment.GetEnvironmentVariable("API_PRIVATE_KEY")
+                ?? throw new InvalidOperationException("API_PRIVATE_KEY is not configured.");
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                throw new InvalidOperationException("API_PRIVATE_KEY is not configured.");
+            }
+
+            Database.pushGitDatabase(commitMessage, "octowalrus", token);
         }
     }
 }

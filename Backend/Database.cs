@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Dynamic;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Backend
 {
@@ -18,7 +19,7 @@ namespace Backend
 
         public static void parseProfilesDatabase()
         {
-            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Profiles");
+            DirectoryInfo di = new DirectoryInfo(GetCollectionDirectory("Profiles"));
             foreach (FileInfo file in di.GetFiles())
             {
                 string jsonString = File.ReadAllText(file.FullName);
@@ -28,7 +29,7 @@ namespace Backend
 
         public static void parseSchedulesDatabase()
         {
-            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Schedules");
+            DirectoryInfo di = new DirectoryInfo(GetCollectionDirectory("Schedules"));
             foreach (FileInfo file in di.GetFiles())
             {
                 string jsonString = File.ReadAllText(file.FullName);
@@ -38,7 +39,7 @@ namespace Backend
 
         public static void parseTrucksDatabase()
         {
-            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Trucks");
+            DirectoryInfo di = new DirectoryInfo(GetCollectionDirectory("Trucks"));
             foreach (FileInfo file in di.GetFiles())
             {
                 string jsonString = File.ReadAllText(file.FullName);
@@ -47,75 +48,101 @@ namespace Backend
         }
         public static void writeProfilesDatabase(string fileName, string json)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string jsonString = JsonSerializer.Serialize(json);
-            File.WriteAllText("localRepoCopy\\Database\\Profiles\\" + fileName, jsonString);
+            WriteDatabaseRecord("Profiles", fileName, json);
         }
 
         public static void writeSchedulesDatabase(string fileName, string json)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string jsonString = JsonSerializer.Serialize(json);
-            File.WriteAllText("localRepoCopy\\Database\\Schedules\\" + fileName, jsonString);
+            WriteDatabaseRecord("Schedules", fileName, json);
         }
 
         public static void writeTrucksDatabase(string fileName, string json)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string jsonString = JsonSerializer.Serialize(json);
-            File.WriteAllText("localRepoCopy\\Database\\Trucks\\" + fileName, jsonString);
+            WriteDatabaseRecord("Trucks", fileName, json);
+        }
+
+        public static void deleteTrucksDatabase(string fileName)
+        {
+            string filePath = GetDatabaseRecordPath("Trucks", fileName);
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException("Truck record was not found.", filePath);
+            }
+
+            File.Delete(filePath);
         }
 
         public static void pushGitDatabase(string commitMessage, string username, string token)
         {
             string localPath = "localRepoCopy";
             string targetBranch = "development";
-            try
+            using (var repo = new Repository(localPath))
             {
-                using (var repo = new Repository(localPath))
+                // 1. Stage all changes (new, modified, or deleted JSON files)
+                Commands.Stage(repo, "*");
+
+                // 2. Check if there are actually changes to commit
+                var status = repo.RetrieveStatus();
+                if (!status.IsDirty)
                 {
-                    // 1. Stage all changes (new, modified, or deleted JSON files)
-                    Commands.Stage(repo, "*");
-
-                    // 2. Check if there are actually changes to commit
-                    var status = repo.RetrieveStatus();
-                    if (!status.IsDirty)
-                    {
-                        Console.WriteLine("No changes detected to push.");
-                        return;
-                    }
-
-                    // 3. Create a signature (Author & Committer info)
-                    var signature = new Signature("TrackingTrucksBot", "bot@trackingtrucks.local", DateTimeOffset.Now);
-
-                    // 4. Commit changes locally
-                    repo.Commit(commitMessage, signature, signature);
-                    Console.WriteLine("Changes committed locally.");
-
-                    // 5. Setup remote and push options with authentication
-                    Remote remote = repo.Network.Remotes["origin"];
-
-                    var pushOptions = new PushOptions
-                    {
-                        CredentialsProvider = (url, usernameFromUrl, allowedTypes) =>
-                            new UsernamePasswordCredentials
-                            {
-                                Username = username,
-                                Password = token // GitHub Personal Access Token (PAT)
-                            }
-                    };
-
-                    // 6. Push to the remote branch
-                    string pushRefSpec = $@"refs/heads/{targetBranch}";
-                    repo.Network.Push(remote, pushRefSpec, pushOptions);
-
-                    Console.WriteLine($"Successfully pushed changes to branch '{targetBranch}'!");
+                    Console.WriteLine("No changes detected to push.");
+                    return;
                 }
+
+                // 3. Create a signature (Author & Committer info)
+                var signature = new Signature("TrackingTrucksBot", "bot@trackingtrucks.local", DateTimeOffset.Now);
+
+                // 4. Commit changes locally
+                repo.Commit(commitMessage, signature, signature);
+                Console.WriteLine("Changes committed locally.");
+
+                // 5. Setup remote and push options with authentication
+                Remote remote = repo.Network.Remotes["origin"];
+
+                var pushOptions = new PushOptions
+                {
+                    CredentialsProvider = (url, usernameFromUrl, allowedTypes) =>
+                        new UsernamePasswordCredentials
+                        {
+                            Username = username,
+                            Password = token // GitHub Personal Access Token (PAT)
+                        }
+                };
+
+                // 6. Push to the remote branch
+                string pushRefSpec = $@"refs/heads/{targetBranch}";
+                repo.Network.Push(remote, pushRefSpec, pushOptions);
+
+                Console.WriteLine($"Successfully pushed changes to branch '{targetBranch}'!");
             }
-            catch (Exception ex)
+        }
+
+        private static string GetCollectionDirectory(string collectionName)
+        {
+            return Path.Combine("localRepoCopy", "Database", collectionName);
+        }
+
+        private static string GetDatabaseRecordPath(string collectionName, string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName) ||
+                fileName != Path.GetFileName(fileName) ||
+                fileName is "." or "..")
             {
-                Console.WriteLine($"Error pushing to repository: {ex.Message}");
+                throw new ArgumentException("A record file name is required.", nameof(fileName));
             }
+
+            return Path.Combine(GetCollectionDirectory(collectionName), fileName);
+        }
+
+        private static void WriteDatabaseRecord(string collectionName, string fileName, string json)
+        {
+            var record = JsonNode.Parse(json)
+                ?? throw new JsonException("A database record cannot be JSON null.");
+            string filePath = GetDatabaseRecordPath(collectionName, fileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+            File.WriteAllText(
+                filePath,
+                record.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         }
 
         public static void clearFolder(string folderName)
@@ -165,16 +192,9 @@ namespace Backend
             {
                 BranchName = targetBranch
             };
-            try
-            {
-                // Clone the specific branch
-                Repository.Clone(repoUrl, localPath, cloneOptions);
-                Console.WriteLine($"Repository cloned successfully on branch '{targetBranch}'!");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error cloning repository: {ex.Message}");
-            }
+            // Clone the specific branch
+            Repository.Clone(repoUrl, localPath, cloneOptions);
+            Console.WriteLine($"Repository cloned successfully on branch '{targetBranch}'!");
         }
     }
 }
