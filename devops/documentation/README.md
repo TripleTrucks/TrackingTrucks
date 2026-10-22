@@ -8,6 +8,8 @@ The supported layout in this repository is a **single K3s node**, with Rancher, 
 
 If this stack is already installed, skip installation steps and use [routine deployment](#9-routine-deployment-and-rollback). Do not overwrite an existing K3s configuration or reinstall the cluster to update the app.
 
+For PR build/lint checks and automatic testing deployments after `development` updates, follow the [in-cluster GitHub Actions runner setup](../rancher/actions-runner/README.md) after installing Jenkins. Its configuration lives under `devops/rancher/actions-runner`; credentials are loaded from the ignored root `.env` into Kubernetes Secrets. GitHub-hosted runners check PRs, and a cluster runner triggers Jenkins through internal DNS without WARP/Tailscale credentials.
+
 ## 1. Requirements
 
 ### Server
