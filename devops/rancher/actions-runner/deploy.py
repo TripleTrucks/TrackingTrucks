@@ -83,7 +83,8 @@ def main():
         kubeconfig = Path.home() / '.kube/trackingtrucks-k3s.yaml'
         if kubeconfig.exists():
             os.environ['KUBECONFIG'] = str(kubeconfig)
-    context = os.environ.get('KUBE_CONTEXT') or subprocess.check_output(
+    orchestrator = yaml.safe_load((ROOT / 'devops/orchestrator.yaml').read_text())
+    context = os.environ.get('KUBE_CONTEXT') or orchestrator['cluster']['context'] or subprocess.check_output(
         ['kubectl', 'config', 'current-context'], text=True).strip()
     kube = ['kubectl', '--context', context]
 

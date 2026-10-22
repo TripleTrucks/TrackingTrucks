@@ -15,6 +15,7 @@ No scheduled polling, WARP enrollment, Tailscale credentials, or GitHub environm
 
 | File | What to edit |
 | --- | --- |
+| `devops/orchestrator.yaml` | Shared Kubernetes context and Rancher/Jenkins deployment settings |
 | `devops/jenkins/environments.yaml` → `ci` | GitHub `repository` as `OWNER/REPO`, existing Jenkins SSH `git_credentials_id`, internal `jenkins_url`, Jenkins automation `jenkins_user` |
 | `devops/jenkins/environments.yaml` → `environments.testing` | Testing hostname; namespace is currently fixed to `testing` |
 | `devops/rancher/actions-runner/values.yaml` | ARC version, controller/runner namespaces, runner image, capacity, authentication mode and optional GitHub App IDs |
@@ -65,7 +66,9 @@ bash devops/jenkins/deployJenkins.sh                 # seed DEPLOY_TESTING and R
 python3 devops/rancher/actions-runner/deploy.py --apply
 ```
 
-The installer uses `KUBECONFIG`/`KUBE_CONTEXT`, or `~/.kube/trackingtrucks-k3s.yaml` if present. Check the selected cluster before applying. It creates controller/runner namespaces, two Secrets, a settings ConfigMap, and the two pinned Helm releases. No application rollout is triggered by installation.
+The installer uses `KUBECONFIG`/`KUBE_CONTEXT`, or `~/.kube/trackingtrucks-k3s.yaml` if present. Without `KUBE_CONTEXT`, it uses `cluster.context` from `devops/orchestrator.yaml`, falling back to the current kubeconfig context when blank. Check the selected cluster before applying. It creates controller/runner namespaces, two Secrets, a settings ConfigMap, and the two pinned Helm releases. No application rollout is triggered by installation.
+
+Keep runner pods in `arc-runners`, separate from application pods in `testing`. The runner calls Jenkins over cluster DNS and needs no access to application resources. Sharing the testing namespace would also put its credentials alongside the application and its deployment RBAC. `runners.namespace` in `values.yaml` remains configurable; changing it after installation requires a planned Helm migration, not just a namespace edit.
 
 Verify:
 

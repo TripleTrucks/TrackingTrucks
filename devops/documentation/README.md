@@ -41,7 +41,7 @@ These are the repository defaults or versions observed on the existing server wh
 | K3s | Reference cluster `v1.36.4+k3s1` | Host installation; deploy script downloads kubectl `v1.36.4` |
 | Helm | **3.x required** by the Rancher script | Host tool |
 | cert-manager | Existing installation `v1.21.2` | Installed separately below |
-| Rancher chart | `2.15.1` | `devops/setup.sh`, Rancher script defaults |
+| Rancher chart | `2.15.1` | `devops/orchestrator.yaml` |
 | Jenkins chart | `5.9.64` | `devops/jenkins/deployJenkins.sh` |
 | Jenkins plugins | Explicit version pins | `devops/jenkins/jenkinsConfig.yaml` |
 | Zot chart / image | `0.1.128` / `v2.1.22` | `artifacts/deploy.sh`, `artifacts/values.yaml` |
@@ -113,10 +113,9 @@ helm version --short
 
 The version output must start with `v3.`. See [Helm 3 installation](https://docs.helm.sh/docs/v3/intro/install/).
 
-From the repository root, configure your own Rancher hostname before sourcing setup:
+From the repository root, edit `rancher.hostname` in `devops/orchestrator.yaml` before sourcing setup. The same YAML controls the Rancher display name, chart versions, cluster context and deployment timeout:
 
 ```bash
-export RANCHER_HOSTNAME=cluster1.tail7af369.ts.net
 source devops/setup.sh
 kubectl config current-context
 kubectl get nodes -o wide
@@ -128,7 +127,7 @@ Replace `tail7af369.ts.net` throughout this guide with your own tailnet suffix w
 
 `setup.sh`:
 
-- Checks that Bash, Helm and kubectl exist.
+- Requires Bash, Helm, kubectl, Python 3 and PyYAML (`sudo apt-get install python3-yaml`).
 - Selects a kubeconfig and current context, honoring `KUBECONFIG` and `KUBE_CONTEXT` overrides.
 - When necessary, uses sudo to copy K3s credentials into `~/.kube/trackingtrucks-k3s.yaml`, readable only by your user.
 - Exports deployment settings and adds convenience shell functions/paths.
@@ -140,9 +139,10 @@ Source it again in each new shell. The kubeconfig grants cluster administrator a
 
 | File | Purpose |
 | --- | --- |
-| [`rancher/rancherConfig.yaml`](../rancher/rancherConfig.yaml) | Rancher Helm values: hostname, one replica, Traefik ingress, private-CA TLS. The `deployment` section describes the intended installation; the shell script does not execute its Tailscale settings. |
+| [`orchestrator.yaml`](../orchestrator.yaml) | Shared cluster context/timeout, Rancher hostname/display name, Rancher and Jenkins chart versions. Tailscale access settings document routing; they do not provision it. |
+| [`rancher/rancherConfig.yaml`](../rancher/rancherConfig.yaml) | Rancher Helm values: replica count, Traefik ingress and private-CA TLS. Hostname is injected from the orchestrator. |
 | [`jenkins/jenkinsConfig.yaml`](../jenkins/jenkinsConfig.yaml) | Jenkins controller resources, storage, plugin pins and Configuration as Code settings. |
-| [`jenkins/environments.yaml`](../jenkins/environments.yaml) | Production namespace/hostname read when the job is seeded. Testing/staging entries do not create corresponding deployment jobs. |
+| [`jenkins/environments.yaml`](../jenkins/environments.yaml) | Production/testing endpoints and GitHub/Jenkins connection settings. Both jobs are seeded; staging is not deployed. |
 | [`jenkins/scripts/deploy-code-rbac.yaml`](../jenkins/scripts/deploy-code-rbac.yaml) | Production namespace, deployment service account/RBAC, Jenkins agent permissions, and legacy release PVC. |
 | [`artifacts/values.yaml`](../../artifacts/values.yaml) | Zot resources, PVC, NodePort, TLS/authentication and read/push policies. |
 | [`jenkins/jobs/deployCode.Jenkinsfile`](../jenkins/jobs/deployCode.Jenkinsfile) | Job parameters, temporary agent Pod YAML and deployment stages. |
@@ -185,7 +185,7 @@ kubectl get crd certificates.cert-manager.io
 
 The version above matches the existing server; use a compatible pinned version when changing Kubernetes. See the [cert-manager Helm installation guide](https://cert-manager.io/docs/installation/helm/).
 
-Edit `devops/rancher/rancherConfig.yaml` and/or set `RANCHER_HOSTNAME` to your own hostname. Set `RANCHER_INSTANCE_NAME` if you want a cluster display name other than `cluster1`. The script's defaults and exported environment variables control chart version/context/timeouts; editing descriptive keys under `deployment:` alone does not change every command.
+Edit `rancher.hostname` and `rancher.instance_name` in `devops/orchestrator.yaml`. Rancher and Jenkins scripts load that file even when called directly. Explicit environment overrides take precedence; use a fresh shell or unset previous overrides before applying YAML changes. Changing the hostname does not create a matching DNS/tunnel route.
 
 Create the Tailscale route to this node's Traefik HTTPS listener. For this single-node setup:
 
@@ -480,3 +480,31 @@ bash devops/rancher/deployRancher.sh
 ```
 
 Related project guides: [registry](../../artifacts/README.md), [Jenkins job](../jenkins/jobs/README.md). These instructions document the current scripts; they are not evidence that a new installation or every failure/recovery path has been exercised on every Ubuntu/Debian release.
+
+
+## Apply updated infrastructure and CI configuration
+
+Edit `devops/orchestrator.yaml` for your server's Rancher hostname and cluster settings. Edit `devops/jenkins/environments.yaml` for application endpoints and Jenkins/GitHub identity. ARC resources, namespace and capacity stay in `devops/rancher/actions-runner/values.yaml`; actual tokens stay in the root `.env`.
+
+Run from the repository root. Clear previously exported deployment settings so YAML edits take effect; leave `KUBECONFIG` pointing at the intended cluster:
+
+```bash
+sudo apt-get install python3-yaml python3-dotenv
+unset RANCHER_HOSTNAME RANCHER_INSTANCE_NAME RANCHER_CHART_VERSION JENKINS_CHART_VERSION KUBE_VERSION DEPLOY_TIMEOUT KUBE_CONTEXT
+source devops/setup.sh
+kubectl --context "$KUBE_CONTEXT" get nodes
+bash devops/rancher/deployRancher.sh
+bash devops/jenkins/deployJenkins.sh
+python3 devops/rancher/actions-runner/deploy.py --apply
+```
+
+These update Rancher, refresh Jenkins and seed both deployment jobs, then install/upgrade ARC and its Secrets. Jenkins is restarted by its deployment script; run when no builds are active. Skip Rancher deployment when only Jenkins/job/runner files changed. No K3s restart is required. Push the workflow files to GitHub to activate the repository-side triggers.
+
+```bash
+kubectl --context "$KUBE_CONTEXT" -n cattle-system rollout status deployment/rancher
+kubectl --context "$KUBE_CONTEXT" -n jenkins rollout status statefulset/jenkins
+kubectl --context "$KUBE_CONTEXT" -n arc-systems get pods
+kubectl --context "$KUBE_CONTEXT" -n arc-runners get pods,autoscalingrunnersets
+```
+
+The runner namespace is intentionally separate from `testing`; Jenkins deploys the application into testing. At zero idle runners, ARC's listener can be running without a runner pod. See the [runner guide](../rancher/actions-runner/README.md) for credentials and access restrictions before enabling it.
