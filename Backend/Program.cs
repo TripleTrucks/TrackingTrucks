@@ -7,7 +7,9 @@ namespace Backend
     {
         static void Main(string[] args)
         {
+            string apiKey = "";
             DotNetEnv.Env.TraversePath().Load();
+            apiKey = Environment.GetEnvironmentVariable("API_PRIVATE_KEY");
             Database.clearFolder("localRepoCopy");
             Database.pullGitDatabase();
             API.startAPI(args);
@@ -21,7 +23,7 @@ namespace Backend
                 string profileName = Console.ReadLine();
                 Console.WriteLine("Please input profile json:");
                 string jsonInput = Console.ReadLine();
-                Database.writeProfilesDatabase(profileName, jsonInput); 
+                Database.writeProfilesDatabase(profileName, jsonInput);
             }
             if (input == 2)
             {
