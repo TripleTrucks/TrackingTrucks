@@ -4,7 +4,11 @@ set -euo pipefail
 : "${DEPLOY_IMAGE:?}"
 : "${RELEASE_ID:?}"
 : "${IMAGE_REPOSITORY:?}"
-[[ "$DEPLOY_NAMESPACE" == production ]] || { echo 'Only production is supported' >&2; exit 1; }
+[[ "$DEPLOY_NAMESPACE" == production || "$DEPLOY_NAMESPACE" == testing ]] || { echo 'Only production and testing are supported' >&2; exit 1; }
+if [[ "$DEPLOY_NAMESPACE" == testing && ( "${1:-deploy}" != deploy || "${BRANCH:-}" != development || -n "${SELECTED_IMAGE:-}" ) ]]; then
+  echo 'Testing only supports fresh development deployments, without registry operations.' >&2
+  exit 1
+fi
 if [[ "${1:-deploy}" != resolve ]]; then
 [[ "$DEPLOY_IMAGE" == "$IMAGE_REPOSITORY"@sha256:* && "${DEPLOY_IMAGE##*@}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
   echo 'Deployment requires a digest in the configured image repository' >&2; exit 1;
@@ -169,7 +173,7 @@ cleanup() {
     echo 'Release failed; restoring the previous Deployment.' >&2
     if [[ -s "$bin_dir/previous.json" ]]; then
       if ! kube apply -f "$bin_dir/previous.json" || ! kube rollout status deployment/trackingtrucks --timeout=5m; then
-        echo 'AUTOMATIC ROLLBACK FAILED: inspect production/trackingtrucks immediately.' >&2
+        echo "AUTOMATIC ROLLBACK FAILED: inspect $DEPLOY_NAMESPACE/trackingtrucks immediately." >&2
       fi
     else
       kube scale deployment trackingtrucks --replicas=0 || true
@@ -207,12 +211,12 @@ const deployment = {
         // Fresh builds exist only on the agent's node until publication succeeds.
         ...(process.env.SELECTED_IMAGE ? {} : {nodeName: process.env.BUILD_NODE}),
         automountServiceAccountToken: false,
-        imagePullSecrets: [{name: 'registry-reader'}],
+        ...(process.env.DEPLOY_NAMESPACE === 'production' ? {imagePullSecrets: [{name: 'registry-reader'}]} : {}),
         securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000},
         containers: [{
           name: 'app',
           image: process.env.DEPLOY_IMAGE,
-          imagePullPolicy: 'IfNotPresent',
+          imagePullPolicy: process.env.DEPLOY_NAMESPACE === 'testing' ? 'Never' : 'IfNotPresent',
           securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ['ALL']}},
           ports: [{name: 'http', containerPort: 5173}],
           readinessProbe: {httpGet: {path: '/index.html', port: 'http'}, periodSeconds: 5},

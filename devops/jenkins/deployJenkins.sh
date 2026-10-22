@@ -2,10 +2,11 @@
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$ROOT/../config.sh"
 NAMESPACE=jenkins
 RELEASE=jenkins
-VERSION="${JENKINS_CHART_VERSION:-5.9.64}"
-TIMEOUT="${DEPLOY_TIMEOUT:-20m}"
+VERSION="${JENKINS_CHART_VERSION}"
+TIMEOUT="${DEPLOY_TIMEOUT}"
 VALUES="$ROOT/jenkinsConfig.yaml"
 
 for tool in kubectl helm python3; do

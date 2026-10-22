@@ -3,7 +3,7 @@
 #   source /path/to/TrackingTrucks/devops/setup.sh
 # Sets paths/settings for running the deployment .sh scripts directly.
 # Does not install software, change cluster resources, or deploy anything.
-# Edit the settings in this file; no .env or other setup file is needed.
+# Edit devops/orchestrator.yaml for deployment settings.
 
 if [ -z "${BASH_VERSION:-}" ]; then
   echo 'Open Bash, then run: source devops/setup.sh' >&2
@@ -15,20 +15,12 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 fi
 
 _prepare_deploy_environment() {
-  # -------- Settings: edit once for your server --------
-  # Blank uses the current context from your existing kubeconfig.
-  local cluster_context="${KUBE_CONTEXT:-}"
-  local rancher_hostname="${RANCHER_HOSTNAME:-cluster1.tail7af369.ts.net}"
-  if [[ "$rancher_hostname" == rancher.example.com ]]; then
-    rancher_hostname="chris-server.tail7af369.ts.net"
-  fi
-  # Confirm Rancher compatibility with your Kubernetes version before deployment.
-  local rancher_version="${RANCHER_CHART_VERSION:-2.15.1}"
-  local jenkins_version="${JENKINS_CHART_VERSION:-5.9.64}"
-  local jenkins_release="${JENKINS_RELEASE:-jenkins}"
-  local jenkins_namespace="${JENKINS_NAMESPACE:-jenkins}"
-  local deploy_timeout="${DEPLOY_TIMEOUT:-15m}"
-  # ---------------------------------------------------
+  source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/config.sh" || return 1
+  local cluster_context="$KUBE_CONTEXT"
+  local rancher_hostname="$RANCHER_HOSTNAME"
+  local rancher_version="$RANCHER_CHART_VERSION"
+  local jenkins_version="$JENKINS_CHART_VERSION"
+  local deploy_timeout="$DEPLOY_TIMEOUT"
   local repo_dir tool directory
   for tool in bash helm kubectl; do
     command -v "$tool" >/dev/null || {
@@ -104,9 +96,7 @@ _prepare_deploy_environment() {
   export DEPLOY_REPO_ROOT="$repo_dir"
   export KUBE_CONTEXT="$cluster_context" RANCHER_HOSTNAME="$rancher_hostname"
   export RANCHER_CHART_VERSION="$rancher_version" JENKINS_CHART_VERSION="$jenkins_version"
-  export JENKINS_RELEASE="$jenkins_release" JENKINS_NAMESPACE="$jenkins_namespace"
   export DEPLOY_TIMEOUT="$deploy_timeout"
-  export RANCHER_INSTANCE_NAME="${RANCHER_INSTANCE_NAME:-cluster1}"
   # Preserve your existing PATH and avoid duplicates if sourced again.
   for directory in "$repo_dir/devops" "$repo_dir/devops/rancher" "$repo_dir/devops/jenkins"; do
     case ":$PATH:" in
@@ -120,15 +110,13 @@ _prepare_deploy_environment() {
     bash "$DEPLOY_REPO_ROOT/devops/rancher/deployRancher.sh" "$@"
   }
   deployJenkins() {
-    CHART_VERSION="$JENKINS_CHART_VERSION" TIMEOUT="$DEPLOY_TIMEOUT" \
-      RELEASE="$JENKINS_RELEASE" NAMESPACE="$JENKINS_NAMESPACE" \
-      bash "$DEPLOY_REPO_ROOT/devops/jenkins/deployJenkins.sh" "$@"
+    bash "$DEPLOY_REPO_ROOT/devops/jenkins/deployJenkins.sh" "$@"
   }
 
   printf 'Environment ready. Repo: %s\nKubernetes context: %s\n' "$DEPLOY_REPO_ROOT" "$KUBE_CONTEXT"
   printf 'Rancher URL: https://%s\n' "$RANCHER_HOSTNAME"
   printf 'Deploy Rancher: bash "%s/devops/rancher/deployRancher.sh"\n' "$DEPLOY_REPO_ROOT"
-  echo 'Setup only prepared this shell; run the .sh script above to deploy.' 
+  echo 'Setup only prepared this shell; run the .sh script above to deploy.'
 }
 
 if _prepare_deploy_environment; then
