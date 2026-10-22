@@ -55,7 +55,7 @@ These are the repository defaults or versions observed on the existing server wh
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git openssh-client openssl python3 python3-bcrypt python3-yaml
 
-git clone git@github.com:ZenMastering/TrackingTrucks.git
+git clone git@github.com:TripleTrucks/TrackingTrucks.git
 cd TrackingTrucks
 ```
 
@@ -185,7 +185,7 @@ kubectl get crd certificates.cert-manager.io
 
 The version above matches the existing server; use a compatible pinned version when changing Kubernetes. See the [cert-manager Helm installation guide](https://cert-manager.io/docs/installation/helm/).
 
-Edit `rancher.hostname` and `rancher.instance_name` in `devops/orchestrator.yaml`. Rancher and Jenkins scripts load that file even when called directly. Explicit environment overrides take precedence; use a fresh shell or unset previous overrides before applying YAML changes. Changing the hostname does not create a matching DNS/tunnel route.
+Edit `rancher.hostname` and `rancher.instance_name` in `devops/orchestrator.yaml`. Rancher and Jenkins scripts load that file even when called directly. The Rancher hostname always comes from orchestrator.yaml. Other settings permit environment overrides; use a fresh shell or unset previous overrides before applying YAML changes. Changing the hostname does not create a matching DNS/tunnel route.
 
 Create the Tailscale route to this node's Traefik HTTPS listener. For this single-node setup:
 

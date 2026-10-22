@@ -25,7 +25,7 @@ dsl = """pipelineJob('DEPLOY_CODE') {
   description('Build a branch into an image, or deploy a saved successful image release.')
   parameters {
     stringParam('IMAGE', '', 'Saved repository@sha256:digest; blank builds BRANCH')
-    stringParam('REPO_URL', 'git@github.com:ZenMastering/TrackingTrucks.git', 'Git repository SSH URL')
+    stringParam('REPO_URL', 'git@github.com:TripleTrucks/TrackingTrucks.git', 'Git repository SSH URL')
     stringParam('BRANCH', 'main', 'Branch to check out and release')
     stringParam('GIT_CREDENTIALS_ID', 'github-ssh', 'Jenkins SSH Username with private key credential ID')
   }
