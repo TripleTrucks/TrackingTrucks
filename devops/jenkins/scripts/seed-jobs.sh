@@ -18,16 +18,17 @@ _, ci = runpy.run_path(str(helper))['load_settings']()
 repo_url = f"git@github.com:{ci['repository']}.git"
 def configured(text):
     return text.replace('__REPO_URL__', repo_url).replace('__GIT_CREDENTIALS_ID__', ci['git_credentials_id'])
-pipeline = pathlib.Path(sys.argv[1]).read_text()
+pipeline = configured(pathlib.Path(sys.argv[1]).read_text())
 # Preserve the Jenkinsfile literally inside a Groovy single-quoted string.
 quoted = "'" + pipeline.replace("\\", "\\\\").replace("'", "\\'").replace("\r", "\\r").replace("\n", "\\n") + "'"
 dsl = """pipelineJob('DEPLOY_CODE') {
   description('Build a branch into an image, or deploy a saved successful image release.')
   parameters {
+    stringParam('COMMIT', '', 'Optional exact commit from BRANCH; ignored for saved images')
     stringParam('IMAGE', '', 'Saved repository@sha256:digest; blank builds BRANCH')
-    stringParam('REPO_URL', 'git@github.com:TripleTrucks/TrackingTrucks.git', 'Git repository SSH URL')
+    stringParam('REPO_URL', '__REPO_URL__', 'Git repository SSH URL')
     stringParam('BRANCH', 'main', 'Branch to check out and release')
-    stringParam('GIT_CREDENTIALS_ID', 'github-ssh', 'Jenkins SSH Username with private key credential ID')
+    stringParam('GIT_CREDENTIALS_ID', '__GIT_CREDENTIALS_ID__', 'Jenkins SSH Username with private key credential ID')
   }
   definition {
     cps {

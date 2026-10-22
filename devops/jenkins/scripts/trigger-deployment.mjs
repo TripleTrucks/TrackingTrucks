@@ -1,16 +1,31 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 
 const required = ['JENKINS_URL', 'JENKINS_USER', 'JENKINS_API_TOKEN', 'REPO_URL', 'GIT_CREDENTIALS_ID', 'GITHUB_SHA'];
 for (const key of required) {
   if (!process.env[key]) throw new Error(`Missing ${key}`);
 }
-if (process.env.GITHUB_REF !== 'refs/heads/development' || !/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA)) {
-  throw new Error('Only a full development commit may be deployed');
+const target = process.argv[2];
+if (!['testing', 'production'].includes(target)) throw new Error('Specify testing or production');
+const production = target === 'production';
+const jobName = production ? 'DEPLOY_CODE' : 'DEPLOY_TESTING';
+let commit = process.env.GITHUB_SHA;
+if (production) {
+  if (process.env.GITHUB_EVENT_NAME !== 'pull_request' || !process.env.GITHUB_EVENT_PATH) {
+    throw new Error('Production requires a merged pull request event');
+  }
+  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+  if (event.action !== 'closed' || event.pull_request?.merged !== true || event.pull_request.base.ref !== 'main') {
+    throw new Error('Production requires a merged pull request targeting main');
+  }
+  commit = event.pull_request.merge_commit_sha;
+} else if (process.env.GITHUB_REF !== 'refs/heads/development') {
+  throw new Error('Testing requires development');
 }
+if (!/^[a-f0-9]{40}$/.test(commit ?? '')) throw new Error('Deployment requires a full commit SHA');
 const base = new URL(process.env.JENKINS_URL.replace(/\/$/, '') + '/');
-const job = new URL('job/DEPLOY_TESTING/', base);
+const job = new URL(`job/${jobName}/`, base);
 const authorization = 'Basic ' + Buffer.from(`${process.env.JENKINS_USER}:${process.env.JENKINS_API_TOKEN}`).toString('base64');
-const deadline = Date.now() + 40 * 60_000;
+const deadline = Date.now() + 50 * 60_000;
 const sleep = () => new Promise(resolve => setTimeout(resolve, 10_000));
 const request = async (url, options = {}) => {
   const target = new URL(url, base);
@@ -39,7 +54,7 @@ await read(new URL('api/json', job));
 // Never retry the POST: a lost response may still have queued a deployment.
 const response = await request(new URL('buildWithParameters', job), {
   method: 'POST',
-  body: new URLSearchParams({COMMIT: process.env.GITHUB_SHA, REPO_URL: process.env.REPO_URL,
+  body: new URLSearchParams({COMMIT: commit, ...(production ? {BRANCH: 'main', IMAGE: ''} : {}), REPO_URL: process.env.REPO_URL,
     GIT_CREDENTIALS_ID: process.env.GIT_CREDENTIALS_ID}),
 });
 if (response.status !== 201 || !response.headers.get('location')) {
@@ -60,16 +75,16 @@ while (Date.now() < deadline) {
       const number = state.executable.number;
       if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Invalid Jenkins build number');
       build = new URL(`${number}/`, job);
-      console.log(`Following DEPLOY_TESTING #${number}`);
+      console.log(`Following ${jobName} #${number}`);
     }
   } else if (state.result !== null && state.result !== undefined) {
     if (process.env.GITHUB_STEP_SUMMARY) {
-      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Testing deployment: **${state.result}** (Jenkins #${state.number}).\n`);
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${jobName} deployment: **${state.result}** (Jenkins #${state.number}).\n`);
     }
     if (state.result !== 'SUCCESS') throw new Error(`Deployment failed: ${state.result}`);
-    console.log('Testing deployment succeeded.');
+    console.log(`${jobName} deployment succeeded.`);
     process.exit(0);
   }
   await sleep();
 }
-throw new Error('Timed out; Jenkins may still be running. Inspect DEPLOY_TESTING before retrying.');
+throw new Error('Timed out; Jenkins may still be running. Inspect Jenkins before retrying.');
