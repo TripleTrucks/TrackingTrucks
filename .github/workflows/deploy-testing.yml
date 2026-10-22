@@ -1,0 +1,33 @@
+name: Deploy testing
+
+on:
+  push:
+    branches: [development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testing-deployment
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    if: github.ref == 'refs/heads/development'
+    uses: ./.github/workflows/pr-checks.yml
+
+  deploy:
+    name: Deploy and verify testing
+    needs: checks
+    # Matches runnerScaleSetName in devops/rancher/actions-runner/values.yaml.
+    runs-on: trackingtrucks-deploy
+    environment: testing
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Trigger Jenkins and wait for deployment
+        # Node is bundled in the pinned ARC runner image; no application install.
+        run: /home/runner/externals/node24/bin/node devops/jenkins/scripts/trigger-deployment.mjs testing

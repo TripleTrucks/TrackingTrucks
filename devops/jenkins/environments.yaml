@@ -1,3 +1,10 @@
+# Public configuration only. See devops/README.md for secrets.
+ci:
+  repository: TripleTrucks/TrackingTrucks
+  git_credentials_id: github-ssh
+  jenkins_url: http://jenkins.jenkins.svc.cluster.local:8080
+  jenkins_user: admin
+
 environments:
   production:
     namespace: production

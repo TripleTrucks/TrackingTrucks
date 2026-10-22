@@ -15,6 +15,7 @@ export interface Truck {
 
 function Home() {
   const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
+  const [visibleTrucks, setVisibleTrucks] = useState<Truck[]>([]);
 
   return (
     <div className="home">
@@ -23,12 +24,14 @@ function Home() {
       <div className="main-layout">
         <SideBar
           selectedTruck={selectedTruck}
+          visibleTrucks={visibleTrucks}
           onTruckSelect={setSelectedTruck}
         />
 
         <MapView
           selectedTruck={selectedTruck}
           onTruckSelect={setSelectedTruck}
+          onVisibleTrucksChange={setVisibleTrucks}
         />
       </div>
     </div>

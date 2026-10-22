@@ -1,0 +1,53 @@
+# This file wraps the two ARC Helm charts. deploy.py selects their values sections.
+chart_version: 0.15.0
+controller:
+  namespace: arc-systems
+  release: arc
+  values:
+    serviceAccount:
+      name: arc-controller
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: '1', memory: 512Mi}
+
+authentication:
+  # pat: ARC_GITHUB_TOKEN in root .env (repository-scoped token).
+  # app: IDs below plus ARC_GITHUB_APP_PRIVATE_KEY_FILE in root .env.
+  mode: pat
+  app_id: ''
+  installation_id: ''
+
+runners:
+  namespace: arc-runners
+  release: trackingtrucks-deploy
+  values:
+    # Empty uses environments.yaml -> ci.repository. For org-scoped runner
+    # groups, set https://github.com/YOUR_ORG and add runnerGroup below.
+    githubConfigUrl: ''
+    # runnerGroup: trusted-deployments
+    githubConfigSecret: arc-github-auth
+    runnerScaleSetName: trackingtrucks-deploy
+    minRunners: 0
+    maxRunners: 2
+    # For organization-scoped registration, restrict the runner group to the
+    # trusted deployment workflow. See devops/README.md before enabling public-repo runners.
+    template:
+      spec:
+        automountServiceAccountToken: false
+        securityContext: {runAsUser: 1001, runAsGroup: 1001, fsGroup: 1001}
+        containers:
+          - name: runner
+            image: ghcr.io/actions/actions-runner:2.338.0
+            command: ['/home/runner/run.sh']
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: {drop: ['ALL']}
+            envFrom:
+              - configMapRef: {name: jenkins-trigger-settings}
+            env:
+              - name: JENKINS_API_TOKEN
+                valueFrom:
+                  secretKeyRef: {name: jenkins-trigger-auth, key: token}
+            resources:
+              requests: {cpu: 100m, memory: 256Mi}
+              limits: {cpu: '1', memory: 1Gi}

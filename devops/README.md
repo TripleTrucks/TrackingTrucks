@@ -1,12 +1,34 @@
-# TrackingTrucks: Ubuntu/Debian deployment guide
+# TrackingTrucks DevOps guide
 
 This guide takes a new administrator from a Linux server to a running TrackingTrucks production frontend. Run commands on the server in Bash unless a step explicitly says otherwise. The repository's deployment scripts manage an existing Kubernetes cluster; they do not install the operating system or K3s for you.
 
 The supported layout in this repository is a **single K3s node**, with Rancher, Jenkins and Zot running in separate namespaces. Rancher provides the management UI; Jenkins runs on Kubernetes, not inside the Rancher container. Tailscale Services provide private HTTPS browser access.
 
-**Installation order:** Linux tools → K3s → Helm/shell configuration → Tailscale → cert-manager/Rancher → Zot → Jenkins → application.
+**Installation order:** Linux tools → K3s → Helm/shell configuration → Tailscale → cert-manager/Rancher → Zot → Jenkins → application → ARC/GitHub automation.
 
 If this stack is already installed, skip installation steps and use [routine deployment](#9-routine-deployment-and-rollback). Do not overwrite an existing K3s configuration or reinstall the cluster to update the app.
+
+For PR build/lint checks and automatic testing deployments after `development` updates, follow the [in-cluster GitHub Actions runner setup](#12-github-actions-and-arc) after installing Jenkins. Its configuration lives under `devops/rancher/actions-runner`; credentials are loaded from the ignored root `.env` into Kubernetes Secrets. GitHub-hosted runners check PRs, and a cluster runner triggers Jenkins through internal DNS without WARP/Tailscale credentials.
+
+
+## Release flow
+
+| Event | What runs | Deployment |
+| --- | --- | --- |
+| PR opened/updated targeting `development` | Frontend lint/type check/build and backend build on GitHub-hosted runners | None |
+| Push or merge to `development` | Checks, then ARC calls Jenkins `DEPLOY_TESTING` | Testing, no registry publication |
+| PR opened/updated targeting `main` | No PR-check workflow | None |
+| PR merged into `main` | ARC calls Jenkins `DEPLOY_CODE` with the exact merge SHA | Production; publish image only after deployment verification |
+| PR closed without merging, or direct push to `main` | No automatic production deployment | None |
+
+There are no unit/integration suites or C# lint checks yet. Jenkins deploys the frontend only; the backend is compiled by CI but is not deployed by these jobs. A production merge does not update `development`, so it does not trigger testing.
+
+## Start here
+
+- **Existing cluster:** follow [apply updates](#13-apply-updated-infrastructure-and-ci-configuration). Do not reinstall K3s.
+- **New server:** follow sections 1–8 in order, then [GitHub automation](#12-github-actions-and-arc).
+- **Configuration:** edit the YAML files in [configuration reference](#what-the-repository-yaml-files-mean); keep secrets in the ignored `.env` or Kubernetes Secrets.
+- **Rollback:** use a successful saved image through [DEPLOY_CODE](#9-routine-deployment-and-rollback).
 
 ## 1. Requirements
 
@@ -39,7 +61,7 @@ These are the repository defaults or versions observed on the existing server wh
 | K3s | Reference cluster `v1.36.4+k3s1` | Host installation; deploy script downloads kubectl `v1.36.4` |
 | Helm | **3.x required** by the Rancher script | Host tool |
 | cert-manager | Existing installation `v1.21.2` | Installed separately below |
-| Rancher chart | `2.15.1` | `devops/setup.sh`, Rancher script defaults |
+| Rancher chart | `2.15.1` | `devops/orchestrator.yaml` |
 | Jenkins chart | `5.9.64` | `devops/jenkins/deployJenkins.sh` |
 | Jenkins plugins | Explicit version pins | `devops/jenkins/jenkinsConfig.yaml` |
 | Zot chart / image | `0.1.128` / `v2.1.22` | `artifacts/deploy.sh`, `artifacts/values.yaml` |
@@ -51,9 +73,9 @@ These are the repository defaults or versions observed on the existing server wh
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl git openssh-client openssl python3 python3-bcrypt python3-yaml
+sudo apt-get install -y ca-certificates curl git openssh-client openssl python3 python3-bcrypt python3-yaml python3-dotenv
 
-git clone git@github.com:ZenMastering/TrackingTrucks.git
+git clone git@github.com:TripleTrucks/TrackingTrucks.git
 cd TrackingTrucks
 ```
 
@@ -111,10 +133,9 @@ helm version --short
 
 The version output must start with `v3.`. See [Helm 3 installation](https://docs.helm.sh/docs/v3/intro/install/).
 
-From the repository root, configure your own Rancher hostname before sourcing setup:
+From the repository root, edit `rancher.hostname` in `devops/orchestrator.yaml` before sourcing setup. The same YAML controls the Rancher display name, chart versions, cluster context and deployment timeout:
 
 ```bash
-export RANCHER_HOSTNAME=cluster1.tail7af369.ts.net
 source devops/setup.sh
 kubectl config current-context
 kubectl get nodes -o wide
@@ -126,7 +147,7 @@ Replace `tail7af369.ts.net` throughout this guide with your own tailnet suffix w
 
 `setup.sh`:
 
-- Checks that Bash, Helm and kubectl exist.
+- Requires Bash, Helm, kubectl, Python 3 and PyYAML (`sudo apt-get install python3-yaml`).
 - Selects a kubeconfig and current context, honoring `KUBECONFIG` and `KUBE_CONTEXT` overrides.
 - When necessary, uses sudo to copy K3s credentials into `~/.kube/trackingtrucks-k3s.yaml`, readable only by your user.
 - Exports deployment settings and adds convenience shell functions/paths.
@@ -138,12 +159,13 @@ Source it again in each new shell. The kubeconfig grants cluster administrator a
 
 | File | Purpose |
 | --- | --- |
-| [`rancher/rancherConfig.yaml`](../rancher/rancherConfig.yaml) | Rancher Helm values: hostname, one replica, Traefik ingress, private-CA TLS. The `deployment` section describes the intended installation; the shell script does not execute its Tailscale settings. |
-| [`jenkins/jenkinsConfig.yaml`](../jenkins/jenkinsConfig.yaml) | Jenkins controller resources, storage, plugin pins and Configuration as Code settings. |
-| [`jenkins/environments.yaml`](../jenkins/environments.yaml) | Production namespace/hostname read when the job is seeded. Testing/staging entries do not create corresponding deployment jobs. |
-| [`jenkins/scripts/deploy-code-rbac.yaml`](../jenkins/scripts/deploy-code-rbac.yaml) | Production namespace, deployment service account/RBAC, Jenkins agent permissions, and legacy release PVC. |
-| [`artifacts/values.yaml`](../../artifacts/values.yaml) | Zot resources, PVC, NodePort, TLS/authentication and read/push policies. |
-| [`jenkins/jobs/deployCode.Jenkinsfile`](../jenkins/jobs/deployCode.Jenkinsfile) | Job parameters, temporary agent Pod YAML and deployment stages. |
+| [`orchestrator.yaml`](orchestrator.yaml) | Shared cluster context/timeout, Rancher hostname/display name, Rancher and Jenkins chart versions. Tailscale access settings document routing; they do not provision it. |
+| [`rancher/rancherConfig.yaml`](rancher/rancherConfig.yaml) | Rancher Helm values: replica count, Traefik ingress and private-CA TLS. Hostname is injected from the orchestrator. |
+| [`jenkins/jenkinsConfig.yaml`](jenkins/jenkinsConfig.yaml) | Jenkins controller resources, storage, plugin pins and Configuration as Code settings. |
+| [`jenkins/environments.yaml`](jenkins/environments.yaml) | Production/testing endpoints and GitHub/Jenkins connection settings. Both jobs are seeded; staging is not deployed. |
+| [`jenkins/scripts/deploy-code-rbac.yaml`](jenkins/scripts/deploy-code-rbac.yaml) | Production namespace, deployment service account/RBAC, Jenkins agent permissions, and legacy release PVC. |
+| [`artifacts/values.yaml`](../artifacts/values.yaml) | Zot resources, PVC, NodePort, TLS/authentication and read/push policies. |
+| [`jenkins/jobs/deployCode.Jenkinsfile`](jenkins/jobs/deployCode.Jenkinsfile) | Job parameters, temporary agent Pod YAML and deployment stages. |
 
 Helm values files are inputs to Helm charts; do not `kubectl apply -f` them. The deployment scripts supply the proper chart, release and namespace. The application Deployment and Service are generated by `deploy-code.sh`, rather than a separate application manifest file.
 
@@ -183,7 +205,7 @@ kubectl get crd certificates.cert-manager.io
 
 The version above matches the existing server; use a compatible pinned version when changing Kubernetes. See the [cert-manager Helm installation guide](https://cert-manager.io/docs/installation/helm/).
 
-Edit `devops/rancher/rancherConfig.yaml` and/or set `RANCHER_HOSTNAME` to your own hostname. Set `RANCHER_INSTANCE_NAME` if you want a cluster display name other than `cluster1`. The script's defaults and exported environment variables control chart version/context/timeouts; editing descriptive keys under `deployment:` alone does not change every command.
+Edit `rancher.hostname` and `rancher.instance_name` in `devops/orchestrator.yaml`. Rancher and Jenkins scripts load that file even when called directly. The Rancher hostname always comes from orchestrator.yaml. Other settings permit environment overrides; use a fresh shell or unset previous overrides before applying YAML changes. Changing the hostname does not create a matching DNS/tunnel route.
 
 Create the Tailscale route to this node's Traefik HTTPS listener. For this single-node setup:
 
@@ -268,6 +290,19 @@ cat artifacts/.local/reader.password
 echo
 ```
 
+### Registry maintenance
+
+
+- `artifacts/values.yaml` configures Zot and requests a 50 GiB PVC. Local-path capacity is not a hard disk quota; monitor server disk space.
+- Images are retained until explicitly removed. Jenkins log retention does not remove images. Back up the registry volume off-server and back up `.local/` securely; a PVC alone is not a backup. Stop the Zot StatefulSet during a filesystem backup for consistency (`kubectl -n artifacts get sts,pvc` identifies resources).
+- Upgrade the pinned chart/image deliberately and rerun `bash artifacts/deploy.sh`. Do not delete its PVC during upgrades.
+- The TLS server certificate lasts one year. Check `openssl x509 -in artifacts/.local/tls.crt -noout -enddate`. To renew, back up `.local/`, move `tls.crt`, `tls.key`, and `tls.csr` out of it, rerun preparation with the same hostname, deploy, and restart the Zot StatefulSet. Keep the CA unchanged so nodes retain trust.
+- Keep the old `trackingtrucks-releases` PVC through the first image deployment, in case it rolls back to the previous workspace-based application.
+
+Application images contain the compiled frontend and web server, not databases, runtime secrets or the .NET backend. Build-time `VITE_*` values are public browser assets.
+
+References: [Zot Helm chart](https://github.com/project-zot/helm-charts), [K3s registry trust](https://docs.k3s.io/installation/private-registry).
+
 ### Three registry addresses, different purposes
 
 | Address | Purpose |
@@ -278,11 +313,11 @@ echo
 
 Kubernetes image pulls happen on nodes, not through pod DNS. Do not replace the image repository address with a Service DNS name or browser hostname without migrating certificate and credential configuration. The existing image address does not depend on MagicDNS or Tailscale route availability.
 
-For the registry browser route only, Serve uses `https+insecure` to the loopback NodePort because Zot's private certificate does not name `127.0.0.1`. Browser TLS verification and registry authentication remain enabled. See the [registry-specific guide](../../artifacts/README.md) for certificate renewal and backup details.
+For the registry browser route only, Serve uses `https+insecure` to the loopback NodePort because Zot's private certificate does not name `127.0.0.1`. Browser TLS verification and registry authentication remain enabled. See the [registry-specific guide](#registry-maintenance) for certificate renewal and backup details.
 
 ## 7. Deploy Jenkins and configure Git access
 
-First review `devops/jenkins/environments.yaml`. Set `production.hostname` to your application URL without `https://`, a path or a port. Keep `production.namespace: production`; the job explicitly supports only that namespace.
+First review `devops/jenkins/environments.yaml`. Set `production.hostname` to your application URL without `https://`, a path or a port. Keep namespaces `production` and `testing`; each job targets its own namespace.
 
 ```bash
 bash devops/jenkins/deployJenkins.sh
@@ -292,11 +327,11 @@ kubectl -n jenkins get sts,pods,svc,pvc
 The script:
 
 1. Checks the selected cluster, local-path storage and registry client resources.
-2. Runs `seed-jobs.sh` to prepare the `DEPLOY_CODE` Job DSL definition and production RBAC.
-3. Publishes deployment scripts as the `deploy-code-scripts` ConfigMap, plus production settings as `deploy-code-settings`.
+2. Runs `seed-jobs.sh` to prepare both `DEPLOY_CODE` and `DEPLOY_TESTING` Job DSL definitions and their namespace RBAC.
+3. Publishes deployment scripts as the `deploy-code-scripts` ConfigMap, plus settings as `deploy-code-settings` in each application namespace.
 4. Installs/upgrades Jenkins with pinned chart/plugins and Configuration as Code, then waits for its StatefulSet.
 
-Jenkins uses a 20 GiB persistent volume for controller state, credentials, job history and archived release metadata. Kubernetes agents are temporary pods in `production`. The controller's service account receives agent-management permissions there; the agent's `deploy-code` account receives application deployment permissions. The job does not use Rancher admin credentials or a host Docker socket.
+Jenkins uses a 20 GiB persistent volume for controller state, credentials, job history and archived release metadata. Kubernetes agents are temporary pods in `production` or `testing`, depending on the job. The controller's service account receives agent-management permissions there; the agent's `deploy-code` account receives application deployment permissions. The job does not use Rancher admin credentials or a host Docker socket.
 
 ### Access Jenkins
 
@@ -341,10 +376,11 @@ The job definition is seeded from the local repository, not dynamically loaded f
 
 ## 8. First application deployment
 
-In Jenkins, open **DEPLOY_CODE → Build with Parameters**:
+In Jenkins, open **DEPLOY_CODE → Build with Parameters** (or DEPLOY_TESTING for the latest development frontend without publishing an image):
 
 | Parameter | First deployment |
 | --- | --- |
+| `COMMIT` | Leave blank for the latest branch revision; automation supplies the merge SHA |
 | `IMAGE` | Leave blank |
 | `BRANCH` | `main`, or the branch to deploy |
 | `REPO_URL` | Your repository SSH URL |
@@ -451,11 +487,11 @@ Back up **all** of these to storage outside this server:
 
 Local-path PVC sizes are requested capacities, not guaranteed disk quotas. Monitor actual filesystem usage. Stop the relevant workload or use an application-consistent snapshot method before filesystem backups. Validate restoration before relying on backups. A single node/PVC does not protect against disk or server failure.
 
-Use the same deployment scripts for upgrades after reviewing pinned version changes. Changing a pinned image/chart version is an infrastructure upgrade; changing application code only needs a Jenkins run. Registry TLS certificates last one year and its CA lasts ten; follow [certificate renewal instructions](../../artifacts/README.md#maintain). Avoid deleting namespaces or PVCs as an upgrade procedure.
+Use the same deployment scripts for upgrades after reviewing pinned version changes. Changing a pinned image/chart version is an infrastructure upgrade; changing application code only needs a Jenkins run. Registry TLS certificates last one year and its CA lasts ten; follow [certificate renewal instructions](#registry-maintenance). Avoid deleting namespaces or PVCs as an upgrade procedure.
 
 ### Secrets and generated files
 
-`artifacts/.local/`, `.env`, generated image contexts/release metadata, node_modules, build output and editor swap files are ignored by Git. Keep kubeconfigs and private Git keys outside the repository. `.env` is **not** automatically read by the DevOps scripts or injected into production. Vite build variables embedded in the frontend are public to browser users and must not contain private secrets.
+`artifacts/.local/`, `.env`, generated image contexts/release metadata, node_modules, build output and editor swap files are ignored by Git. Keep kubeconfigs and private Git keys outside the repository. Only the ARC installer reads the root `.env` for its credentials; it is not injected into application pods. Vite build variables embedded in the frontend are public to browser users and must not contain private secrets.
 
 ## 11. Quick reference after initial installation
 
@@ -477,4 +513,154 @@ bash devops/rancher/deployRancher.sh
 # Use DEPLOY_CODE → Build with Parameters in Jenkins.
 ```
 
-Related project guides: [registry](../../artifacts/README.md), [Jenkins job](../jenkins/jobs/README.md). These instructions document the current scripts; they are not evidence that a new installation or every failure/recovery path has been exercised on every Ubuntu/Debian release.
+These instructions document the current scripts; they are not evidence that a new installation or every failure/recovery path has been exercised on every Ubuntu/Debian release.
+
+
+## 12. GitHub Actions and ARC
+
+ARC creates temporary in-cluster Actions runners. They reach Jenkins over cluster DNS using outbound GitHub connectivity; no public Jenkins webhook, WARP enrollment or Tailscale CI secret is required. PR checks run separately on GitHub-hosted runners.
+
+### CI settings
+
+| File | What to edit |
+| --- | --- |
+| `devops/orchestrator.yaml` | Shared Kubernetes context and Rancher/Jenkins deployment settings |
+| `devops/jenkins/environments.yaml` → `ci` | GitHub `repository` as `OWNER/REPO`, existing Jenkins SSH `git_credentials_id`, internal `jenkins_url`, Jenkins automation `jenkins_user` |
+| `devops/jenkins/environments.yaml` → `environments.testing` | Testing hostname; namespace is currently fixed to `testing` |
+| `devops/rancher/actions-runner/values.yaml` | ARC version, controller/runner namespaces, runner image, capacity, authentication mode and optional GitHub App IDs |
+| `.github/workflows/pr-checks.yml` | PR target branches, check commands, tool versions |
+| `.github/workflows/deploy-testing.yml` | Development push trigger, testing environment and runner name |
+| `.github/workflows/deploy-production.yml` | Merged-main-PR trigger, production environment and runner name |
+| Root `.env` (gitignored) | Actual credential values; see below |
+
+`runnerScaleSetName` and the workflow's `runs-on` must match. The testing source branch is `development`; changing it requires updating the Jenkins pipeline's branch restriction as well as the workflow. Production/testing namespaces and `DEPLOY_TESTING` are implementation identities, not arbitrary labels. Do not put token values in committed YAML.
+
+### Create credentials
+
+For the simplest repository-scoped setup, create a fine-grained GitHub PAT for this repository with **Administration: read and write** and an owner who can administer runners. Metadata read access is included. Grant organization approval if required. Set an expiry and plan to rotate it. Alternatively use a classic token with `repo` scope. For organization-scoped registration, follow GitHub's different permissions for organization runners.
+
+In Jenkins create a dedicated automation user (for example `github-actions`; set `ci.jenkins_user` to its actual username), with Overall/Read and read/build access to both `DEPLOY_TESTING` and `DEPLOY_CODE`. Generate a **user API token**, not a password. The existing SSH credential `github-ssh` remains separate and is used only by Jenkins for checkout. The API user needs production build permission but no cluster administrator permissions; configure Jenkins authorization accordingly if it currently gives all authenticated users administrator access.
+
+Add only these two entries to the existing root `.env`:
+
+```dotenv
+ARC_GITHUB_TOKEN='your-github-personal-access-token'
+JENKINS_API_TOKEN='your-jenkins-user-api-token'
+```
+
+Preserve existing entries. `.env.example` contains empty placeholders only. The installer reads values literally with `python-dotenv` and does not source the file as shell code. It writes `arc-github-auth` and `jenkins-trigger-auth` in the runner namespace using Kubernetes Secrets; only the Jenkins token is injected into runner pods. GitHub registration credentials stay with ARC. No credentials are written to Helm values or committed files. Kubernetes Secrets still require restricted RBAC and cluster backups/encryption appropriate to your deployment.
+
+For a longer-lived, transferable setup, prefer a **GitHub App** over a personal token. Set `authentication.mode: app` and the public `app_id`/`installation_id` in `values.yaml`. Install the app on the target account/repository with the permissions in [GitHub's ARC authentication guide](https://docs.github.com/en/actions/how-tos/manage-runners/use-actions-runner-controller/authenticate-to-the-api). Put the downloaded private key in the gitignored `devops/rancher/actions-runner/.local/github-app.pem`, restrict its file permissions, and replace `ARC_GITHUB_TOKEN` in `.env` with:
+
+```dotenv
+ARC_GITHUB_APP_PRIVATE_KEY_FILE=devops/rancher/actions-runner/.local/github-app.pem
+```
+
+Keep `JENKINS_API_TOKEN`. A local key path is resolved relative to the repository root. The installer copies the key contents into the ARC Secret, not the runner pod.
+
+### Configure GitHub access
+
+Create GitHub environments **testing** (allow `development`) and **production** (allow `main`; optionally require approval). Remove required PR checks from main protection if they would wait for the intentionally disabled main PR checks. Require PRs and the checks **Frontend lint and build** and **Backend build** on `development`. Require the PR branch to be up to date before merging. Protect workflow/configuration changes with review.
+
+The private runner must only execute trusted deployment code. Runner labels and the `environment` field alone are not access controls: another workflow could request this runner and access its injected Jenkins token. For public repositories or repositories with untrusted contributors, use an **organization runner group restricted to this repository and the testing workflow on development and production workflow on main** (where supported by your GitHub plan) before enabling it. Set `githubConfigUrl: https://github.com/YOUR_ORG` and `runnerGroup` in `values.yaml`, and use organization-scope ARC credentials. If those restrictions are unavailable, do not expose a privileged private runner to untrusted workflows; use a separate trusted deployment repository. See [GitHub's self-hosted runner security guidance](https://docs.github.com/en/actions/reference/security/secure-use).
+
+### Install ARC
+
+On the cluster administration machine, from the repository root:
+
+```bash
+sudo apt-get install python3-yaml python3-dotenv
+# helm and kubectl must already be installed, using your cluster-admin kubeconfig.
+python3 devops/rancher/actions-runner/deploy.py       # validate YAML only
+bash devops/jenkins/deployJenkins.sh                 # seed both jobs and RBAC
+python3 devops/rancher/actions-runner/deploy.py --apply
+```
+
+The installer uses `KUBECONFIG`/`KUBE_CONTEXT`, or `~/.kube/trackingtrucks-k3s.yaml` if present. Without `KUBE_CONTEXT`, it uses `cluster.context` from `devops/orchestrator.yaml`, falling back to the current kubeconfig context when blank. Check the selected cluster before applying. It creates controller/runner namespaces, two Secrets, a settings ConfigMap, and the two pinned Helm releases. No application rollout is triggered by installation.
+
+Keep runner pods in `arc-runners`, separate from application pods in `testing`. The runner calls Jenkins over cluster DNS and needs no access to application resources. Sharing the testing namespace would also put its credentials alongside the application and its deployment RBAC. `runners.namespace` in `values.yaml` remains configurable; changing it after installation requires a planned Helm migration, not just a namespace edit.
+
+Verify:
+
+```bash
+kubectl -n arc-systems get pods
+kubectl -n arc-runners get pods,autoscalingrunnersets
+```
+
+GitHub **Settings → Actions → Runners** should show the scale set. With `minRunners: 0`, a listener should remain available but there may be no idle runner pod. Push the workflows, then merge a PR into `development`. GitHub's deployment job should move from queued to running and report Jenkins's actual result. No GitHub-hosted PR job uses cluster credentials.
+
+### Endpoints and operation
+
+The runner uses `http://jenkins.jenkins.svc.cluster.local:8080` by default; this sends the API token over cluster HTTP, matching the existing Jenkins Service. If the cluster threat model requires encryption in transit, configure a reachable trusted HTTPS endpoint in YAML. The runner must resolve/reach Jenkins and have outbound HTTPS to GitHub and GitHub's Actions services. The external browser URL can remain private behind WARP/Tailscale; it is not used for triggering.
+
+The testing hostname in `environments.yaml` must already route to Service `testing/trackingtrucks`, port 80. Configuration alone does not provision DNS/tunnels. Jenkins's internal checks verify the Service; verify your external tunnel route separately. This currently deploys the frontend/Nginx application, not the C# backend.
+
+Rerun the installer after YAML edits or secret rotation. New pods use the new settings; active jobs retain their starting environment. Refresh Jenkins after changing repository or checkout credential settings. The installer does not delete retired Secrets when switching authentication modes.
+
+Set `maxRunners` for capacity. Deployments to this shared environment remain serialized by Actions and Jenkins; GitHub may replace an older pending run with a newer one. A cancelled/timed-out Actions run may leave Jenkins running—inspect the job before retrying. Failed Jenkins rollouts attempt restoration of the previous Deployment. Testing images remain in the importing K3s node's cache and pods are pinned there, so this deployment method does not yet provide multi-node application failover; rebuilding restores a lost image. ARC runner scaling itself is independent of that application limitation.
+
+To remove ARC, uninstall the runner release first, then the controller. Secrets and namespaces are retained unless you explicitly delete them:
+
+```bash
+helm uninstall trackingtrucks-deploy -n arc-runners
+helm uninstall arc -n arc-systems
+```
+
+### Release configuration and first run
+
+`deploy-production.yml` uses a `pull_request` **closed** event and checks `merged == true`. It checks out the resulting merge commit (including squash/rebase merge results). The shared trigger validates the event, submits `BRANCH=main`, empty `IMAGE`, and `COMMIT` to Jenkins, then reports Jenkins's result. Jenkins validates the SHA and its ancestry on main before compilation. Manual DEPLOY_CODE runs can still build the latest selected branch or restore an image.
+
+Refresh Jenkins **before** enabling the workflows, so its COMMIT parameter exists. Commit both workflows and the trigger script to the appropriate branches: testing runs from development; production must be included in the merged main revision. The manual testing workflow button requires its file on the default branch too. No new token is needed if the existing Jenkins account can build both jobs.
+
+The shared runner has credentials that can trigger both environments. Only approved workflows should execute there; environment approval alone does not isolate the injected token. Queue ordering is not a release-history guarantee: GitHub concurrency can replace pending runs. Avoid overlapping release merges when every release must deploy. Cancelling Actions does not cancel a queued/running Jenkins build.
+
+### Testing browser route
+
+After the first testing deployment creates its Service, run on the Tailscale host:
+
+```bash
+TESTING_IP=$(kubectl -n testing get service trackingtrucks -o jsonpath='{.spec.clusterIP}')
+sudo tailscale serve --bg --service=svc:testing --tls-terminated-tcp=443 "tcp://$TESTING_IP:80"
+```
+
+The Tailscale Service name must match the hostname configured in environments.yaml. Approve the service host if requested. Rerun after recreating the Service; do not hardcode its ClusterIP.
+
+### Automation troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| No Actions run | Workflow exists on the event branch; exact branch name; Actions enabled; production requires a merged PR, not a direct push |
+| Waiting for runner | ARC controller/listener pods, GitHub token access to the current repository owner, runner scale-set name matches runs-on |
+| Awaiting approval | GitHub environment deployment rules/reviewers |
+| Jenkins 401/403 | API token belongs to ci.jenkins_user; account can read/build the target job |
+| Jenkins unknown parameter/old behavior | Rerun deployJenkins.sh to refresh seeded pipelines |
+| Action fails after queuing | Inspect Jenkins first; the trigger deliberately never retries the POST to avoid duplicate deployments |
+
+## 13. Apply updated infrastructure and CI configuration
+
+For only the release automation changes, refresh Jenkins and push the workflow/script files. Rancher needs no update unless its own configuration changed. Refresh ARC only when its settings or credentials changed.
+
+Edit `devops/orchestrator.yaml` for your server's Rancher hostname and cluster settings. Edit `devops/jenkins/environments.yaml` for application endpoints and Jenkins/GitHub identity. ARC resources, namespace and capacity stay in `devops/rancher/actions-runner/values.yaml`; actual tokens stay in the root `.env`.
+
+Run from the repository root. Clear previously exported deployment settings so YAML edits take effect; leave `KUBECONFIG` pointing at the intended cluster:
+
+```bash
+sudo apt-get install python3-yaml python3-dotenv
+unset RANCHER_HOSTNAME RANCHER_INSTANCE_NAME RANCHER_CHART_VERSION JENKINS_CHART_VERSION KUBE_VERSION DEPLOY_TIMEOUT KUBE_CONTEXT
+source devops/setup.sh
+kubectl --context "$KUBE_CONTEXT" get nodes
+bash devops/rancher/deployRancher.sh
+bash devops/jenkins/deployJenkins.sh
+python3 devops/rancher/actions-runner/deploy.py --apply
+```
+
+These update Rancher, refresh Jenkins and seed both deployment jobs, then install/upgrade ARC and its Secrets. Jenkins is restarted by its deployment script; run when no builds are active. Skip Rancher deployment when only Jenkins/job/runner files changed. No K3s restart is required. Push the workflow files to GitHub to activate the repository-side triggers.
+
+```bash
+kubectl --context "$KUBE_CONTEXT" -n cattle-system rollout status deployment/rancher
+kubectl --context "$KUBE_CONTEXT" -n jenkins rollout status statefulset/jenkins
+kubectl --context "$KUBE_CONTEXT" -n arc-systems get pods
+kubectl --context "$KUBE_CONTEXT" -n arc-runners get pods,autoscalingrunnersets
+```
+
+The runner namespace is intentionally separate from `testing`; Jenkins deploys the application into testing. At zero idle runners, ARC's listener can be running without a runner pod. See the [runner guide](#12-github-actions-and-arc) for credentials and access restrictions before enabling it.

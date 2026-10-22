@@ -244,3 +244,6 @@ release/
 /image.tar
 Backend/obj/
 Backend/bin/
+
+# Local ARC/GitHub App credential files
+/devops/rancher/actions-runner/.local/

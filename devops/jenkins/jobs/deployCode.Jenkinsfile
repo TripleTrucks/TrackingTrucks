@@ -2,10 +2,11 @@ properties([
     disableConcurrentBuilds(),
     buildDiscarder(logRotator(numToKeepStr: '30')),
     parameters([
+        string(name: 'COMMIT', defaultValue: '', description: 'Optional exact commit from BRANCH; ignored for saved images.'),
         string(name: 'IMAGE', defaultValue: '', description: 'Saved release tag or repository@sha256:digest. Blank builds BRANCH.'),
-        string(name: 'REPO_URL', defaultValue: 'git@github.com:ZenMastering/TrackingTrucks.git', description: 'Git repository SSH URL'),
+        string(name: 'REPO_URL', defaultValue: '__REPO_URL__', description: 'Git repository SSH URL'),
         string(name: 'BRANCH', defaultValue: 'main', description: 'Branch to build when IMAGE is blank'),
-        string(name: 'GIT_CREDENTIALS_ID', defaultValue: 'github-ssh', description: 'Jenkins SSH credential ID')
+        string(name: 'GIT_CREDENTIALS_ID', defaultValue: '__GIT_CREDENTIALS_ID__', description: 'Jenkins SSH credential ID')
     ])
 ])
 
@@ -104,14 +105,20 @@ spec:
                         env.BRANCH = ''
                     } else {
                         sh('git check-ref-format "refs/heads/$BRANCH"')
+                        def commit = (params.COMMIT ?: '').trim()
+                        if (commit && !(commit ==~ /[0-9a-f]{40}/)) { error('COMMIT must be a full SHA') }
                         def revision = checkout([
                             $class: 'GitSCM',
-                            branches: [[name: 'refs/remotes/origin/' + env.BRANCH]],
+                            branches: [[name: commit ?: 'refs/remotes/origin/' + env.BRANCH]],
                             userRemoteConfigs: [[url: params.REPO_URL, credentialsId: params.GIT_CREDENTIALS_ID,
                                 refspec: '+refs/heads/' + env.BRANCH + ':refs/remotes/origin/' + env.BRANCH]],
                             extensions: [[$class: 'CloneOption', shallow: false, noTags: true, honorRefspec: true]]
                         ])
                         env.DEPLOY_COMMIT = revision.GIT_COMMIT
+                        if (commit) {
+                            if (env.DEPLOY_COMMIT != commit) { error('Checkout did not match requested commit') }
+                            sh('git merge-base --is-ancestor "$DEPLOY_COMMIT" "origin/$BRANCH"')
+                        }
                     }
                 }
                 if (!restore) {

@@ -3,6 +3,7 @@ import type { Truck } from "../Home";
 
 interface SideBarProps {
   selectedTruck: Truck | null;
+  visibleTrucks: Truck[];
   onTruckSelect: (truck: Truck | null) => void;
 }
 
@@ -51,14 +52,6 @@ interface Schedule {
   sunday?: TimeRange[];
 }
 
-const truckFiles = import.meta.glob<Truck>(
-  "/Database/Trucks/*.json",
-  {
-    eager: true,
-    import: "default",
-  }
-);
-
 const profileFiles = import.meta.glob<Profile>(
   "/Database/Profiles/*.json",
   {
@@ -75,7 +68,6 @@ const scheduleFiles = import.meta.glob<Schedule>(
   }
 );
 
-const trucks = Object.values(truckFiles);
 const profiles = Object.values(profileFiles);
 const schedules = Object.values(scheduleFiles);
 
@@ -126,6 +118,7 @@ function formatSchedule(ranges: TimeRange[] | undefined): string {
 
 function SideBar({
   selectedTruck,
+  visibleTrucks,
   onTruckSelect,
 }: SideBarProps) {
   if (selectedTruck) {
@@ -260,10 +253,10 @@ function SideBar({
       </div>
 
       <div className="truck-list">
-        {trucks.length === 0 ? (
-          <p style={{ padding: "20px" }}>No trucks found.</p>
+        {visibleTrucks.length === 0 ? (
+          <p style={{ padding: "20px" }}>No trucks visible in this map area.</p>
         ) : (
-          trucks.map((truck) => (
+          visibleTrucks.map((truck) => (
             <button
               key={truck.id}
               className="truck-card"

@@ -1,0 +1,21 @@
+# Public deployment settings. Credentials stay in the ignored root .env.
+# Blank context uses the current kubeconfig context.
+# Access settings document existing routing; these scripts do not provision tunnels.
+cluster:
+  context: ''
+  timeout: 15m
+rancher:
+  hostname: cluster1.tail7af369.ts.net
+  instance_name: cluster1
+  chart_version: 2.15.1
+  kubernetes_version: 1.36.4
+  access:
+    scheme: https
+    port: 443
+    tailscale:
+      service: svc:cluster1
+      requiredMachineTag: tag:server
+      backendAddress: 192.168.68.55
+      backendPort: 443
+jenkins:
+  chart_version: 5.9.64
