@@ -4,114 +4,190 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Linq;
 
 
 namespace Backend
 {
     public class API
     {
-        public record scheduleFields(int id, string truckIds, string lastRevised, string location, string monday, string tuesday, string wednesday, string thursday, string friday, string saturday, string sunday);
-        public record profileFields(int id, string username, string password, string displayname, string phoneNumber, string role, string truckIDs);
-        public record truckFields(int id, string truckName, string tags, string profileIds, string scheduleIds);
-        public static void startAPI()
+        public static void startAPI(string[] args)
         {
-            var builder = WebApplication.CreateBuilder();
+            var builder = WebApplication.CreateBuilder(args);
             var app = builder.Build();
 
-            app.MapGet("/api/Trucks.json", () =>
+            // Endpoint to get all trucks.
+            app.MapGet("/api/Trucks", () =>
             {
                 var data = GetDataFromDirectory("localRepoCopy\\Database\\Trucks");
                 return Results.Ok(new { Data = data, Status = "Success", Timestamp = DateTime.UtcNow });
             });
 
-            app.MapGet("/api/Schedules.json", () =>
+            // Endpoint to get a truck by Id. Fauls gracefully if truck data is invalid
+            app.MapGet("/api/Trucks/{id:int}", (int id) =>
+            {
+                var truck = GetDataFromDirectory("localRepoCopy\\Database\\Trucks")
+                    .OfType<JsonObject>()
+                    .FirstOrDefault(record => record["id"]?.GetValue<int>() == id);
+
+                if (truck is null)
+                {
+                    return Results.NotFound();
+                }
+
+                return Results.Ok(truck);
+            });
+
+            // Endpoint to add a new truck. Fails gracefully if Id already exists
+            app.MapPost("/api/Trucks", (JsonObject truck) =>
+            {
+                if (truck["id"] is not JsonValue idValue ||
+                    !idValue.TryGetValue<int>(out var id) ||
+                    id <= 0)
+                {
+                    return Results.BadRequest(new { error = "A positive int id is required" });
+                }
+
+                if (truck["truckname"] is not JsonValue nameValue ||
+                    !nameValue.TryGetValue<string>(out var truckname) ||
+                    string.IsNullOrWhiteSpace(truckname))
+                {
+                    return Results.BadRequest(new { error = "A truckname is required" });
+                }
+
+                if (truck["tags"] is not JsonArray ||
+                    truck["profileIds"] is not JsonArray profileIds ||
+                    profileIds.Count != 0 ||
+                    truck["scheduleIds"] is not JsonArray scheduleIds ||
+                    scheduleIds.Count != 0)
+                {
+                    return Results.BadRequest(new
+                    {
+                        error = "For now, tags must be an array and profileIds/scheduleIds must be empty arrays."
+                    });
+                }
+
+                var existingTruck = GetDataFromDirectory("localRepoCopy\\Database\\Trucks")
+                    .OfType<JsonObject>()
+                    .Any(record =>
+                        record["id"] is JsonValue recordId &&
+                        recordId.TryGetValue<int>(out var existingId) &&
+                        existingId == id);
+
+                if (existingTruck)
+                {
+                    return Results.Conflict(new { error = $"Truck id {id} already exists." });
+                }
+
+                var filePath = Path.Combine(
+                    "localRepoCopy",
+                    "Database",
+                    "Trucks",
+                    $"{id}.json");
+
+                File.WriteAllText(
+                    filePath,
+                    truck.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+                return Results.Created($"/api/Trucks/{id}", truck);
+            });
+
+            // Endpoint to edit an existing truck
+            app.MapPut("/api/Trucks/{id:int}", (int id, JsonObject updatedTruck) =>
+            {
+                var trucksDirectory = Path.Combine("localRepoCopy", "Database", "Trucks");
+                var existingTruck = GetDataFromDirectory(trucksDirectory)
+                    .OfType<JsonObject>()
+                    .FirstOrDefault(record =>
+                        record["id"] is JsonValue idValue &&
+                        idValue.TryGetValue<int>(out var existingId) &&
+                        existingId == id);
+
+                if (existingTruck is null)
+                {
+                    return Results.NotFound();
+                }
+
+                if (updatedTruck["id"] is not JsonValue updatedIdValue ||
+                    !updatedIdValue.TryGetValue<int>(out var updatedId) ||
+                    updatedId != id ||
+                    updatedTruck["truckname"] is not JsonValue nameValue ||
+                    !nameValue.TryGetValue<string>(out var truckName) ||
+                    string.IsNullOrWhiteSpace(truckName) ||
+                    updatedTruck["tags"] is not JsonArray tags ||
+                    updatedTruck["profileIds"] is not JsonArray profileIds ||
+                    updatedTruck["scheduleIds"] is not JsonArray scheduleIds)
+                {
+                    return Results.BadRequest(new { error = "Invalid truck record" });
+                }
+
+                if (existingTruck["profileIds"]?.ToJsonString() != profileIds.ToJsonString() ||
+                    existingTruck["scheduleIds"]?.ToJsonString() != scheduleIds.ToJsonString())
+                {
+                    return Results.BadRequest(new
+                    {
+                        error = "Changing profileIds or scheduleIds is not supported yet."
+                    });
+                }
+
+                var filePath = Path.Combine(trucksDirectory, $"{id}.json");
+                File.WriteAllText(
+                    filePath,
+                    updatedTruck.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+                return Results.Ok(updatedTruck);
+            });
+
+            // Endpoint to Delete a truck
+            app.MapDelete("/api/Trucks/{id:int}", (int id) =>
+            {
+                var trucksDirectory = Path.Combine("localRepoCopy", "Database", "Trucks");
+                var existingTruck = GetDataFromDirectory(trucksDirectory)
+                    .OfType<JsonObject>()
+                    .FirstOrDefault(record =>
+                        record["id"] is JsonValue idValue &&
+                        idValue.TryGetValue<int>(out var existingId) &&
+                        existingId == id);
+
+                if (existingTruck is null)
+                {
+                    return Results.NotFound();
+                }
+
+                if ((existingTruck["profileIds"] as JsonArray)?.Count > 0 ||
+                    (existingTruck["scheduleIds"] as JsonArray)?.Count > 0)
+                {
+                    return Results.Conflict(new
+                    {
+                        error = "Cannot delete a truck while it has profile or schedule links."
+                    });
+                }
+
+                var filePath = Path.Combine(trucksDirectory, $"{id}.json");
+                File.Delete(filePath);
+
+                return Results.NoContent();
+            });
+
+            // Endpoint to get all schedules
+            app.MapGet("/api/Schedules", () =>
             {
                 var data = GetDataFromDirectory("localRepoCopy\\Database\\Schedules");
                 return Results.Ok(new { Data = data, Status = "Success", Timestamp = DateTime.UtcNow });
             });
 
-            app.MapGet("/api/Profiles.json", () =>
+            // Endpoint to get all profiles
+            app.MapGet("/api/Profiles", () =>
             {
                 var data = GetDataFromDirectory("localRepoCopy\\Database\\Profiles");
                 return Results.Ok(new { Data = data, Status = "Success", Timestamp = DateTime.UtcNow });
             });
 
-            app.MapPost("/api/TrucksAdd", (string truckString) =>
+            // Endpoint to just check the status of the API
+            app.MapGet("/api/health", () =>
             {
-                // Validate or handle your data here
-                if (truckString == null)
-                {
-                    return Results.BadRequest(new { Status = "Error", Message = "Invalid profile data." });
-                }
-
-                var truckJSON = JsonSerializer.Deserialize<scheduleFields>(truckString);
-
-                if (truckJSON.id == null || truckJSON.id == 0)
-                {
-                    return Results.BadRequest(new { Status = "Error", Message = "Invalid profile data." });
-                }
-
-                Database.writeProfilesDatabase(truckJSON.id.ToString(), truckString);
-
-                // Return a 201 Created response with the result
-                return Results.Created($"/api/truck.json", new
-                {
-                    Data = truckString,
-                    Status = "Success",
-                    Timestamp = DateTime.UtcNow
-                });
-            });
-
-            app.MapPost("/api/ProfilesAdd", (string profileString) =>
-            {
-                // Validate or handle your data here
-                if (profileString == null)
-                {
-                    return Results.BadRequest(new { Status = "Error", Message = "Invalid profile data." });
-                }
-
-                var profileJSON = JsonSerializer.Deserialize<scheduleFields>(profileString);
-
-                if (profileJSON.id == null || profileJSON.id == 0)
-                {
-                    return Results.BadRequest(new { Status = "Error", Message = "Invalid profile data." });
-                }
-
-                Database.writeProfilesDatabase(profileJSON.id.ToString(), profileString);
-
-                // Return a 201 Created response with the result
-                return Results.Created($"/api/profile.json", new
-                {
-                    Data = profileString,
-                    Status = "Success",
-                    Timestamp = DateTime.UtcNow
-                });
-            });
-
-            app.MapPost("/api/SchedulesAdd", (string scheduleString) =>
-            {
-                // Validate or handle your data here
-                if (scheduleString == null)
-                {
-                    return Results.BadRequest(new { Status = "Error", Message = "Invalid profile data." });
-                }
-                
-                var scheduleJSON = JsonSerializer.Deserialize<scheduleFields>(scheduleString);
-
-                if (scheduleJSON.id == null || scheduleJSON.id == 0)
-                {
-                    return Results.BadRequest(new { Status = "Error", Message = "Invalid profile data." });
-                }
-
-                Database.writeProfilesDatabase(scheduleJSON.id.ToString(), scheduleString);
-
-                // Return a 201 Created response with the result
-                return Results.Created($"/api/schedule.json", new
-                {
-                    Data = scheduleString,
-                    Status = "Success",
-                    Timestamp = DateTime.UtcNow
-                });
+                return Results.Ok(new { Status = "ok" });
             });
 
             app.Run();
@@ -126,10 +202,17 @@ namespace Backend
 
             foreach (FileInfo file in di.GetFiles("*.json"))
             {
-                string jsonString = File.ReadAllText(file.FullName);
+                if (file.Name.Equals("template.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
 
-                using var doc = JsonDocument.Parse(jsonString);
-                list.Add(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText()));
+                var record = JsonNode.Parse(File.ReadAllText(file.FullName));
+
+                if (record is not null)
+                {
+                    list.Add(record);
+                }
             }
 
             return list;
