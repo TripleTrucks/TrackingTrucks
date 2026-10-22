@@ -1,4 +1,4 @@
-# Public configuration only. See devops/rancher/actions-runner/README.md for secrets.
+# Public configuration only. See devops/README.md for secrets.
 ci:
   repository: TripleTrucks/TrackingTrucks
   git_credentials_id: github-ssh

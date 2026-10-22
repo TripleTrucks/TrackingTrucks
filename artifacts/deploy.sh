@@ -49,7 +49,7 @@ helm upgrade --install artifacts oci://ghcr.io/project-zot/helm-charts/zot \
   --version 0.1.128 --namespace artifacts --kube-context "$context" \
   --values "$ROOT/values.yaml" --values "$STATE/helm-private.json" \
   --wait --timeout 5m --history-max 5
-printf 'Registry installed: https://%s\nNext: configure K3s trust, then refresh Jenkins (see artifacts/README.md).\n' "$(cat "$STATE/endpoint")"
+printf 'Registry installed: https://%s\nNext: configure K3s trust, then refresh Jenkins (see devops/README.md).\n' "$(cat "$STATE/endpoint")"
 
 echo 'Cluster DNS: artifacts-zot.artifacts.svc.cluster.local:5000'
 echo 'To expose it through Tailscale, run on a K3s node: bash artifacts/deploy.sh --serve'
