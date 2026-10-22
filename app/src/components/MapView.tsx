@@ -1,8 +1,10 @@
+import { useEffect } from "react";
 import {
   MapContainer,
   TileLayer,
   Marker,
   Popup,
+  useMap,
 } from "react-leaflet";
 
 import "leaflet/dist/leaflet.css";
@@ -12,26 +14,60 @@ import type { Truck } from "../Home";
 interface MapViewProps {
   selectedTruck: Truck | null;
   onTruckSelect: (truck: Truck) => void;
+  onVisibleTrucksChange: (trucks: Truck[]) => void;
 }
 
-const truckFiles = import.meta.glob(
-  "../../Database/Trucks/*.json",
+const truckFiles = import.meta.glob<Truck>(
+  "../../../Database/Trucks/*.json",
   {
     eager: true,
     import: "default",
   }
 );
 
-const trucks = Object.values(truckFiles) as Truck[];
+const trucks = Object.values(truckFiles);
 
-const truckPositions: Record<number, [number, number]> = {
-  1: [36.3134, -82.3535],
-  2: [36.3182, -82.3651],
-  3: [36.3058, -82.3472],
-};
+const truckPositions: Record<number, [number, number]> = {};
+
+function VisibleTruckReporter({
+  onVisibleTrucksChange,
+}: Pick<MapViewProps, "onVisibleTrucksChange">) {
+  const map = useMap();
+
+  useEffect(() => {
+    const updateVisibleTrucks = () => {
+      const bounds = map.getBounds();
+      const center = map.getCenter();
+      const visibleTrucks = trucks
+        .flatMap((truck) => {
+          const position = truckPositions[truck.id];
+
+          if (!position || !bounds.contains(position)) {
+            return [];
+          }
+
+          return [{ truck, distance: map.distance(center, position) }];
+        })
+        .sort((first, second) => first.distance - second.distance)
+        .map(({ truck }) => truck);
+
+      onVisibleTrucksChange(visibleTrucks);
+    };
+
+    updateVisibleTrucks();
+    map.on("moveend", updateVisibleTrucks);
+
+    return () => {
+      map.off("moveend", updateVisibleTrucks);
+    };
+  }, [map, onVisibleTrucksChange]);
+
+  return null;
+}
 
 function MapView({
   onTruckSelect,
+  onVisibleTrucksChange,
 }: MapViewProps) {
   const center: [number, number] = [36.3033, -82.3692];
 
@@ -42,6 +78,10 @@ function MapView({
         zoom={17}
         style={{ height: "100%", width: "100%" }}
       >
+        <VisibleTruckReporter
+          onVisibleTrucksChange={onVisibleTrucksChange}
+        />
+
         <TileLayer
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
