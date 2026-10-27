@@ -30,7 +30,7 @@ runners:
     minRunners: 0
     maxRunners: 2
     # For organization-scoped registration, restrict the runner group to the
-    # trusted deployment workflow. See README before enabling public-repo runners.
+    # trusted deployment workflow. See devops/README.md before enabling public-repo runners.
     template:
       spec:
         automountServiceAccountToken: false

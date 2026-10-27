@@ -23,11 +23,11 @@ jobs:
     # Matches runnerScaleSetName in devops/rancher/actions-runner/values.yaml.
     runs-on: trackingtrucks-deploy
     environment: testing
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - name: Trigger Jenkins and wait for deployment
         # Node is bundled in the pinned ARC runner image; no application install.
-        run: /home/runner/externals/node24/bin/node devops/jenkins/scripts/trigger-testing.mjs
+        run: /home/runner/externals/node24/bin/node devops/jenkins/scripts/trigger-deployment.mjs testing
