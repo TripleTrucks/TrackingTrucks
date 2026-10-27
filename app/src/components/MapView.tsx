@@ -10,11 +10,13 @@ import {
 import "leaflet/dist/leaflet.css";
 
 import type { Truck } from "../Home";
+import { getTruckStatus } from "../truckStatus";
 
 interface MapViewProps {
   selectedTruck: Truck | null;
   onTruckSelect: (truck: Truck) => void;
   onVisibleTrucksChange: (trucks: Truck[]) => void;
+  currentTime: Date;
 }
 
 const truckFiles = import.meta.glob<Truck>(
@@ -27,7 +29,9 @@ const truckFiles = import.meta.glob<Truck>(
 
 const trucks = Object.values(truckFiles);
 
-const truckPositions: Record<number, [number, number]> = {};
+const truckPositions: Record<number, [number, number]> = {
+  1: [36.3033, -82.3692],
+};
 
 function VisibleTruckReporter({
   onVisibleTrucksChange,
@@ -68,6 +72,7 @@ function VisibleTruckReporter({
 function MapView({
   onTruckSelect,
   onVisibleTrucksChange,
+  currentTime,
 }: MapViewProps) {
   const center: [number, number] = [36.3033, -82.3692];
 
@@ -106,6 +111,8 @@ function MapView({
                 <strong>{truck.truckname}</strong>
                 <br />
                 {truck.tags.join(" • ")}
+                <br />
+                {getTruckStatus(truck.scheduleIds ?? [], currentTime).name}
               </Popup>
             </Marker>
           );

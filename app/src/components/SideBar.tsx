@@ -1,55 +1,24 @@
 
 import type { Truck } from "../Home";
+import {
+  getTruckStatus,
+  schedules,
+  type DayKey,
+  type TimeRange,
+  type TruckStatus,
+} from "../truckStatus";
 
 interface SideBarProps {
   selectedTruck: Truck | null;
   visibleTrucks: Truck[];
   onTruckSelect: (truck: Truck | null) => void;
+  currentTime: Date;
 }
 
 interface Profile {
   id: number;
   displayname: string;
   truckIds: number[];
-}
-
-interface TimeRange {
-  startTime: string;
-  endTime: string;
-}
-
-type DayKey =
-  | "monday"
-  | "tuesday"
-  | "wednesday"
-  | "thursday"
-  | "friday"
-  | "saturday"
-  | "sunday";
-
-interface AddressComponents {
-  street_address?: string;
-  extended_address?: string;
-  city?: string;
-  state_province?: string;
-  postal_code?: string;
-  country?: string;
-}
-
-interface Schedule {
-  id: number;
-  truckIds: number[];
-  location?: {
-    name?: string;
-    address_components?: AddressComponents;
-  };
-  monday?: TimeRange[];
-  tuesday?: TimeRange[];
-  wednesday?: TimeRange[];
-  thursday?: TimeRange[];
-  friday?: TimeRange[];
-  saturday?: TimeRange[];
-  sunday?: TimeRange[];
 }
 
 const profileFiles = import.meta.glob<Profile>(
@@ -60,16 +29,7 @@ const profileFiles = import.meta.glob<Profile>(
   }
 );
 
-const scheduleFiles = import.meta.glob<Schedule>(
-  "/Database/Schedules/*.json",
-  {
-    eager: true,
-    import: "default",
-  }
-);
-
 const profiles = Object.values(profileFiles);
-const schedules = Object.values(scheduleFiles);
 
 const days: { label: string; key: DayKey }[] = [
   { label: "Monday", key: "monday" },
@@ -116,10 +76,22 @@ function formatSchedule(ranges: TimeRange[] | undefined): string {
     .join(", ");
 }
 
+function StatusBadge({ status }: { status: TruckStatus }) {
+  return (
+    <div
+      className={`status-badge status-${status.className}`}
+      role="status"
+    >
+      {status.name}
+    </div>
+  );
+}
+
 function SideBar({
   selectedTruck,
   visibleTrucks,
   onTruckSelect,
+  currentTime,
 }: SideBarProps) {
   if (selectedTruck) {
     const truckProfiles = (selectedTruck.profileIds ?? [])
@@ -129,6 +101,10 @@ function SideBar({
     const truckSchedules = (selectedTruck.scheduleIds ?? [])
       .map((id) => schedules.find((schedule) => schedule.id === id))
       .filter((schedule) => schedule !== undefined);
+    const truckStatus = getTruckStatus(
+      selectedTruck.scheduleIds ?? [],
+      currentTime
+    );
 
     return (
       <aside className="sidebar">
@@ -141,6 +117,7 @@ function SideBar({
 
         <div className="truck-details">
           <h2>{selectedTruck.truckname}</h2>
+          <StatusBadge status={truckStatus} />
 
           <div className="truck-tags">
             {selectedTruck.tags.map((tag) => (
@@ -265,6 +242,13 @@ function SideBar({
               <div className="truck-card-name">
                 {truck.truckname}
               </div>
+
+              <StatusBadge
+                status={getTruckStatus(
+                  truck.scheduleIds ?? [],
+                  currentTime
+                )}
+              />
 
               <div className="truck-card-tags">
                 {truck.tags.join(" • ")}
