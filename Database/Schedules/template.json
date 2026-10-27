@@ -1,7 +1,9 @@
 {
     "id" : 1,
     "truckIds" : [1],
-    "last-revised": "10/20/2026",
+    "last-revised": "10/27/2026",
+    "canceled": false,
+    "soldOut": false,
     "location": {
       "name": "Downtown Retail Center",
       "address_components": {

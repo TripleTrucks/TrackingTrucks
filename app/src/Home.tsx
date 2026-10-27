@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./Home.css";
 
 import Navbar from "./components/Navbar";
@@ -16,6 +16,12 @@ export interface Truck {
 function Home() {
   const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
   const [visibleTrucks, setVisibleTrucks] = useState<Truck[]>([]);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   return (
     <div className="home">
@@ -26,12 +32,14 @@ function Home() {
           selectedTruck={selectedTruck}
           visibleTrucks={visibleTrucks}
           onTruckSelect={setSelectedTruck}
+          currentTime={currentTime}
         />
 
         <MapView
           selectedTruck={selectedTruck}
           onTruckSelect={setSelectedTruck}
           onVisibleTrucksChange={setVisibleTrucks}
+          currentTime={currentTime}
         />
       </div>
     </div>
