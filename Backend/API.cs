@@ -14,6 +14,25 @@ namespace Backend
     {
         private static readonly object databaseWriteLock = new();
 
+        private static bool TryGetDevelopmentRole(
+            HttpContext context,
+            IHostEnvironment environment,
+            out string role)
+        {
+            role = string.Empty;
+
+            if (!environment.IsDevelopment())
+            {
+                return false;
+            }
+
+            role = context.Request.Headers["X-Dev-Role"].ToString()
+                .Trim()
+                .ToLowerInvariant();
+
+            return role is "user" or "owner" or "admin";
+        }
+
         public static void startAPI(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
@@ -42,8 +61,25 @@ namespace Backend
             });
 
             // Endpoint to add a new truck. Fails gracefully if Id already exists
-            app.MapPost("/api/Trucks", (JsonObject truck) =>
+            app.MapPost("/api/Trucks", (HttpContext context, JsonObject truck) =>
             {
+                if (!TryGetDevelopmentRole(context, app.Environment, out var role) ||
+                    role == "user")
+                {
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
+                }
+
+                int? ownerProfileId = null;
+                if (role == "owner")
+                {
+                    if (!TryGetDevelopmentOwnerProfileId(context, out int profileId))
+                    {
+                        return Results.StatusCode(StatusCodes.Status403Forbidden);
+                    }
+
+                    ownerProfileId = profileId;
+                }
+
                 if (truck["id"] is not JsonValue idValue ||
                     !idValue.TryGetValue<int>(out var id) ||
                     id <= 0)
@@ -70,106 +106,145 @@ namespace Backend
                     });
                 }
 
-                var existingTruck = GetDataFromDirectory(GetCollectionDirectory("Trucks"))
-                    .OfType<JsonObject>()
-                    .Any(record =>
-                        record["id"] is JsonValue recordId &&
-                        recordId.TryGetValue<int>(out var existingId) &&
-                        existingId == id);
-
-                if (existingTruck)
-                {
-                    return Results.Conflict(new { error = $"Truck id {id} already exists." });
-                }
-
                 lock (databaseWriteLock)
                 {
-                    Database.writeTrucksDatabase($"{id}.json", truck.ToJsonString());
-                    PushDatabaseChanges($"Create truck {id}");
-                }
+                    bool existingTruck = GetDataFromDirectory(GetCollectionDirectory("Trucks"))
+                        .OfType<JsonObject>()
+                        .Any(record =>
+                            record["id"] is JsonValue recordId &&
+                            recordId.TryGetValue<int>(out var existingId) &&
+                            existingId == id);
+                    if (existingTruck)
+                    {
+                        return Results.Conflict(new { error = $"Truck id {id} already exists." });
+                    }
 
-                return Results.Created($"/api/Trucks/{id}", truck);
+                    JsonObject truckToSave = (JsonObject)truck.DeepClone();
+                    if (ownerProfileId is int profileId)
+                    {
+                        truckToSave["profileIds"] = new JsonArray(profileId);
+                        Database.addTruckToProfileDatabase(profileId, id);
+                    }
+
+                    Database.writeTrucksDatabase($"{id}.json", truckToSave.ToJsonString());
+                    PushDatabaseChanges($"Create truck {id}");
+                    return Results.Created($"/api/Trucks/{id}", truckToSave);
+                }
             });
 
             // Endpoint to edit an existing truck
-            app.MapPut("/api/Trucks/{id:int}", (int id, JsonObject updatedTruck) =>
+            app.MapPut("/api/Trucks/{id:int}", (HttpContext context, int id, JsonObject updatedTruck) =>
             {
-                var trucksDirectory = Path.Combine("localRepoCopy", "Database", "Trucks");
-                var existingTruck = GetDataFromDirectory(trucksDirectory)
-                    .OfType<JsonObject>()
-                    .FirstOrDefault(record =>
-                        record["id"] is JsonValue idValue &&
-                        idValue.TryGetValue<int>(out var existingId) &&
-                        existingId == id);
-
-                if (existingTruck is null)
+                if (!TryGetDevelopmentRole(context, app.Environment, out var role) ||
+                    role == "user")
                 {
-                    return Results.NotFound();
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
                 }
 
-                if (updatedTruck["id"] is not JsonValue updatedIdValue ||
-                    !updatedIdValue.TryGetValue<int>(out var updatedId) ||
-                    updatedId != id ||
-                    updatedTruck["truckname"] is not JsonValue nameValue ||
-                    !nameValue.TryGetValue<string>(out var truckName) ||
-                    string.IsNullOrWhiteSpace(truckName) ||
-                    updatedTruck["tags"] is not JsonArray tags ||
-                    updatedTruck["profileIds"] is not JsonArray profileIds ||
-                    updatedTruck["scheduleIds"] is not JsonArray scheduleIds)
+                int? ownerProfileId = null;
+                if (role == "owner")
                 {
-                    return Results.BadRequest(new { error = "Invalid truck record" });
-                }
-
-                if (existingTruck["profileIds"]?.ToJsonString() != profileIds.ToJsonString() ||
-                    existingTruck["scheduleIds"]?.ToJsonString() != scheduleIds.ToJsonString())
-                {
-                    return Results.BadRequest(new
+                    if (!TryGetDevelopmentOwnerProfileId(context, out int profileId))
                     {
-                        error = "Changing profileIds or scheduleIds is not supported yet."
-                    });
+                        return Results.StatusCode(StatusCodes.Status403Forbidden);
+                    }
+
+                    ownerProfileId = profileId;
                 }
 
                 lock (databaseWriteLock)
                 {
+                    var existingTruck = GetDataFromDirectory(GetCollectionDirectory("Trucks"))
+                        .OfType<JsonObject>()
+                        .FirstOrDefault(record =>
+                            record["id"] is JsonValue idValue &&
+                            idValue.TryGetValue<int>(out var existingId) &&
+                            existingId == id);
+
+                    if (existingTruck is null)
+                    {
+                        return Results.NotFound();
+                    }
+
+                    if (ownerProfileId is int profileId &&
+                        !IsTruckLinkedToProfile(existingTruck, profileId, id))
+                    {
+                        return Results.StatusCode(StatusCodes.Status403Forbidden);
+                    }
+
+                    if (updatedTruck["id"] is not JsonValue updatedIdValue ||
+                        !updatedIdValue.TryGetValue<int>(out var updatedId) ||
+                        updatedId != id ||
+                        updatedTruck["truckname"] is not JsonValue nameValue ||
+                        !nameValue.TryGetValue<string>(out var truckName) ||
+                        string.IsNullOrWhiteSpace(truckName) ||
+                        updatedTruck["tags"] is not JsonArray ||
+                        updatedTruck["profileIds"] is not JsonArray profileIds ||
+                        updatedTruck["scheduleIds"] is not JsonArray scheduleIds)
+                    {
+                        return Results.BadRequest(new { error = "Invalid truck record" });
+                    }
+
+                    if (existingTruck["profileIds"]?.ToJsonString() != profileIds.ToJsonString() ||
+                        existingTruck["scheduleIds"]?.ToJsonString() != scheduleIds.ToJsonString())
+                    {
+                        return Results.BadRequest(new
+                        {
+                            error = "Changing profileIds or scheduleIds is not supported yet."
+                        });
+                    }
+
                     Database.writeTrucksDatabase($"{id}.json", updatedTruck.ToJsonString());
                     PushDatabaseChanges($"Update truck {id}");
+                    return Results.Ok(updatedTruck);
                 }
-
-                return Results.Ok(updatedTruck);
             });
 
             // Endpoint to Delete a truck
-            app.MapDelete("/api/Trucks/{id:int}", (int id) =>
+            app.MapDelete("/api/Trucks/{id:int}", (HttpContext context, int id) =>
             {
-                var trucksDirectory = Path.Combine("localRepoCopy", "Database", "Trucks");
-                var existingTruck = GetDataFromDirectory(trucksDirectory)
-                    .OfType<JsonObject>()
-                    .FirstOrDefault(record =>
-                        record["id"] is JsonValue idValue &&
-                        idValue.TryGetValue<int>(out var existingId) &&
-                        existingId == id);
-
-                if (existingTruck is null)
+                if (!TryGetDevelopmentRole(context, app.Environment, out var role) ||
+                    role == "user")
                 {
-                    return Results.NotFound();
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
                 }
 
-                if ((existingTruck["profileIds"] as JsonArray)?.Count > 0 ||
-                    (existingTruck["scheduleIds"] as JsonArray)?.Count > 0)
+                int? ownerProfileId = null;
+                if (role == "owner")
                 {
-                    return Results.Conflict(new
+                    if (!TryGetDevelopmentOwnerProfileId(context, out int profileId))
                     {
-                        error = "Cannot delete a truck while it has profile or schedule links."
-                    });
+                        return Results.StatusCode(StatusCodes.Status403Forbidden);
+                    }
+
+                    ownerProfileId = profileId;
                 }
 
                 lock (databaseWriteLock)
                 {
+                    var existingTruck = GetDataFromDirectory(GetCollectionDirectory("Trucks"))
+                        .OfType<JsonObject>()
+                        .FirstOrDefault(record =>
+                            record["id"] is JsonValue idValue &&
+                            idValue.TryGetValue<int>(out var existingId) &&
+                            existingId == id);
+
+                    if (existingTruck is null)
+                    {
+                        return Results.NotFound();
+                    }
+
+                    if (ownerProfileId is int profileId &&
+                        !IsTruckLinkedToProfile(existingTruck, profileId, id))
+                    {
+                        return Results.StatusCode(StatusCodes.Status403Forbidden);
+                    }
+
+                    Database.removeTruckLinksDatabase(id);
                     Database.deleteTrucksDatabase($"{id}.json");
                     PushDatabaseChanges($"Delete truck {id}");
+                    return Results.NoContent();
                 }
-
-                return Results.NoContent();
             });
 
             // Endpoint to get all schedules
@@ -198,6 +273,45 @@ namespace Backend
         private static string GetCollectionDirectory(string collectionName)
         {
             return Path.Combine("localRepoCopy", "Database", collectionName);
+        }
+
+        private static bool TryGetDevelopmentOwnerProfileId(HttpContext context, out int profileId)
+        {
+            profileId = 0;
+            if (!int.TryParse(context.Request.Headers["X-Dev-Profile-Id"], out profileId) ||
+                profileId <= 0)
+            {
+                return false;
+            }
+
+            JsonObject? profile = Database.getProfileDatabase(profileId);
+            return profile?["role"] is JsonValue roleValue &&
+                roleValue.TryGetValue<string>(out var profileRole) &&
+                string.Equals(profileRole, "owner", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsTruckLinkedToProfile(JsonObject truck, int profileId, int truckId)
+        {
+            if (truck["profileIds"] is not JsonArray truckProfileIds ||
+                !ContainsId(truckProfileIds, profileId))
+            {
+                return false;
+            }
+
+            JsonObject? profile = Database.getProfileDatabase(profileId);
+            return profile?["role"] is JsonValue roleValue &&
+                roleValue.TryGetValue<string>(out var profileRole) &&
+                string.Equals(profileRole, "owner", StringComparison.OrdinalIgnoreCase) &&
+                profile["truckIds"] is JsonArray profileTruckIds &&
+                ContainsId(profileTruckIds, truckId);
+        }
+
+        private static bool ContainsId(JsonArray values, int id)
+        {
+            return values.Any(value =>
+                value is JsonValue jsonValue &&
+                jsonValue.TryGetValue<int>(out var valueId) &&
+                valueId == id);
         }
 
         private static List<object> GetDataFromDirectory(string folderPath)
