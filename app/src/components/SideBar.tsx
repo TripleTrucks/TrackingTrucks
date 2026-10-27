@@ -171,6 +171,8 @@ function SideBar({
                     {cityStatePostal && <p>{cityStatePostal}</p>}
 
                     {address?.country && <p>{address.country}</p>}
+
+                    <p>Time zone: {schedule.timezone || "Not specified"}</p>
                   </div>
                 );
               })
