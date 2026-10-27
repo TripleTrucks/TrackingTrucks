@@ -61,6 +61,34 @@ namespace Backend
             WriteDatabaseRecord("Trucks", fileName, json);
         }
 
+        public static JsonObject? getProfileDatabase(int profileId)
+        {
+            return FindRecord("Profiles", profileId)?.Record;
+        }
+
+        public static void addTruckToProfileDatabase(int profileId, int truckId)
+        {
+            var profile = FindRecord("Profiles", profileId)
+                ?? throw new FileNotFoundException($"Profile {profileId} was not found.");
+
+            if (profile.Record["truckIds"] is not JsonArray truckIds)
+            {
+                throw new InvalidDataException($"Profile {profileId} has no valid truckIds array.");
+            }
+
+            if (!ContainsId(truckIds, truckId))
+            {
+                truckIds.Add(truckId);
+                WriteDatabaseRecord("Profiles", profile.FileName, profile.Record.ToJsonString());
+            }
+        }
+
+        public static void removeTruckLinksDatabase(int truckId)
+        {
+            RemoveTruckLinksFromCollection("Profiles", truckId);
+            RemoveTruckLinksFromCollection("Schedules", truckId);
+        }
+
         public static void deleteTrucksDatabase(string fileName)
         {
             string filePath = GetDatabaseRecordPath("Trucks", fileName);
@@ -70,6 +98,90 @@ namespace Backend
             }
 
             File.Delete(filePath);
+        }
+
+        private static (string FileName, JsonObject Record)? FindRecord(string collectionName, int id)
+        {
+            string directory = GetCollectionDirectory(collectionName);
+            if (!Directory.Exists(directory))
+            {
+                return null;
+            }
+
+            (string FileName, JsonObject Record)? match = null;
+            foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
+            {
+                if (Path.GetFileName(path).Equals("template.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                JsonNode? node = JsonNode.Parse(File.ReadAllText(path));
+                if (node is not JsonObject record ||
+                    record["id"] is not JsonValue recordId ||
+                    !recordId.TryGetValue<int>(out int recordIdValue) ||
+                    recordIdValue != id)
+                {
+                    continue;
+                }
+
+                if (match.HasValue)
+                {
+                    throw new InvalidDataException($"Multiple {collectionName} records have id {id}.");
+                }
+
+                match = (Path.GetFileName(path), record);
+            }
+
+            return match;
+        }
+
+        private static bool ContainsId(JsonArray values, int id)
+        {
+            return values.Any(value =>
+                value is JsonValue jsonValue &&
+                jsonValue.TryGetValue<int>(out int valueId) &&
+                valueId == id);
+        }
+
+        private static void RemoveTruckLinksFromCollection(string collectionName, int truckId)
+        {
+            string directory = GetCollectionDirectory(collectionName);
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
+            {
+                if (Path.GetFileName(path).Equals("template.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (JsonNode.Parse(File.ReadAllText(path)) is not JsonObject record ||
+                    record["truckIds"] is not JsonArray truckIds)
+                {
+                    continue;
+                }
+
+                bool changed = false;
+                for (int index = truckIds.Count - 1; index >= 0; index--)
+                {
+                    if (truckIds[index] is JsonValue value &&
+                        value.TryGetValue<int>(out int linkedTruckId) &&
+                        linkedTruckId == truckId)
+                    {
+                        truckIds.RemoveAt(index);
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    WriteDatabaseRecord(collectionName, Path.GetFileName(path), record.ToJsonString());
+                }
+            }
         }
 
         public static void pushGitDatabase(string commitMessage, string username, string token)
