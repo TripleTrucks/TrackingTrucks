@@ -2,6 +2,7 @@
     "id" : 1,
     "truckIds" : [1],
     "last-revised": "10/20/2026",
+    "timeZone": "America/New_York",
     "location": {
       "name": "Downtown Retail Center",
       "address_components": {
