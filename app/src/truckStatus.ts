@@ -18,6 +18,7 @@ export interface Schedule {
   "last-revised"?: string;
   canceled?: boolean;
   soldOut?: boolean;
+  timezone?: string;
   location?: {
     name?: string;
     address_components?: {

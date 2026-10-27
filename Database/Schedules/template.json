@@ -2,6 +2,7 @@
     "id" : 1,
     "truckIds" : [1],
     "last-revised": "10/27/2026",
+    "timezone": "America/New_York",
     "canceled": false,
     "soldOut": false,
     "location": {

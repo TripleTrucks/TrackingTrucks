@@ -23,7 +23,7 @@ namespace Backend
                 string profileName = Console.ReadLine();
                 Console.WriteLine("Please input profile json:");
                 string jsonInput = Console.ReadLine();
-                Database.writeProfilesDatabase(profileName, jsonInput); 
+                Database.writeProfilesDatabase(profileName, jsonInput);
             }
             if (input == 2)
             {
