@@ -133,6 +133,38 @@
   font-weight: 600;
 }
 
+.status-badge {
+  display: inline-block;
+  width: fit-content;
+  margin: 0 0 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-open {
+  background: #e6f4ea;
+  color: #176b32;
+}
+
+.status-scheduled {
+  background: #e8f0fe;
+  color: #174ea6;
+}
+
+.status-closed,
+.status-canceled,
+.status-sold-out {
+  background: #fce8e6;
+  color: #a50e0e;
+}
+
+.status-stale {
+  background: #fef7e0;
+  color: #7a4f01;
+}
+
 .truck-card-tags {
   color: #666666;
 

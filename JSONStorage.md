@@ -11,6 +11,12 @@ The `Database` directory stores JSON records in `Profiles`, `Trucks`, and
 - A truck's `profileIds` and `scheduleIds` list its associated profiles and
   schedules.
 - A schedule's `truckIds` lists the trucks that use that schedule.
+- Schedule records may set `canceled` or `soldOut` to `true` for temporary
+  service changes; both flags are optional and default to `false`.
+- Public status uses the visitor's local time and the schedule's weekly hours.
+  Schedules revised more than seven days ago, or without a valid
+  `last-revised` date, are shown as stale. Canceled and sold-out flags take
+  precedence over schedule hours.
 
 These ID arrays represent many-to-many relationships. Keep the references on
 both sides in sync when adding or removing a relationship. IDs must be unique
