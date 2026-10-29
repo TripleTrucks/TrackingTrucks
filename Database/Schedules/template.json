@@ -7,6 +7,10 @@
     "soldOut": false,
     "location": {
       "name": "Downtown Retail Center",
+      "coordinates": {
+        "latitude": 36.3033,
+        "longitude": -82.3692
+      },
       "address_components": {
         "street_address": "123 Main Street",
         "extended_address": "Suite 400",
