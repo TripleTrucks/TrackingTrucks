@@ -4,12 +4,15 @@ import {
   TileLayer,
   Marker,
   Popup,
+  Polyline,
+  CircleMarker,
   useMap,
 } from "react-leaflet";
 
 import "leaflet/dist/leaflet.css";
 
 import type { Truck } from "../Home";
+import type { DrivingRoute, MapPosition } from "../geoapifyRouting";
 import { getTruckStatus, schedules } from "../truckStatus";
 
 interface MapViewProps {
@@ -17,6 +20,10 @@ interface MapViewProps {
   onTruckSelect: (truck: Truck) => void;
   onVisibleTrucksChange: (trucks: Truck[]) => void;
   currentTime: Date;
+  routeState: {
+    status: "loading" | "success" | "error";
+    route?: DrivingRoute;
+  } | null;
 }
 
 const truckFiles = import.meta.glob<Truck>(
@@ -124,10 +131,41 @@ function VisibleTruckReporter({
   return null;
 }
 
+function RouteLayer({
+  positions,
+}: {
+  positions: MapPosition[] | undefined;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (positions && positions.length > 1) {
+      map.fitBounds(positions, { padding: [40, 40] });
+    }
+  }, [map, positions]);
+
+  if (!positions || positions.length < 2) {
+    return null;
+  }
+
+  return (
+    <>
+      <Polyline
+        positions={positions}
+        pathOptions={{ color: "#c1121f", weight: 5, opacity: 0.85 }}
+      />
+      <CircleMarker center={positions[0]} pathOptions={{ color: "#176b32" }}>
+        <Popup>Starting point: 325 Treasure Lane</Popup>
+      </CircleMarker>
+    </>
+  );
+}
+
 function MapView({
   onTruckSelect,
   onVisibleTrucksChange,
   currentTime,
+  routeState,
 }: MapViewProps) {
   return (
     <main className="map-container">
@@ -140,6 +178,7 @@ function MapView({
         <VisibleTruckReporter
           onVisibleTrucksChange={onVisibleTrucksChange}
         />
+        <RouteLayer positions={routeState?.route?.positions} />
 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> | Powered by <a href="https://www.geoapify.com/">Geoapify</a>'
