@@ -17,6 +17,78 @@ namespace Backend
         static Dictionary<string, string> databaseSchedulesVars = new Dictionary<string, string>();
         static Dictionary<string, string> databaseTrucksVars = new Dictionary<string, string>();
 
+        public static void ExportSchedulesToCsv(string outputPath)
+        {
+            string directory = GetCollectionDirectory("Schedules");
+            if (!Directory.Exists(directory))
+            {
+                throw new DirectoryNotFoundException($"Directory not found: {directory}");
+            }
+
+            var records = new List<JsonObject>();
+            foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
+            {
+                if (Path.GetFileName(path).Equals("template.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (JsonNode.Parse(File.ReadAllText(path)) is JsonObject record)
+                {
+                    records.Add(record);
+                }
+            }
+
+            if (records.Count == 0)
+            {
+                File.WriteAllText(outputPath, string.Empty);
+                return;
+            }
+
+            // Collect all unique keys across all records to use as CSV columns
+            var headers = records.SelectMany(r => r.Select(kvp => kvp.Key)).Distinct().ToList();
+
+            var csvLines = new List<string>();
+
+            // 1. Build Header Row
+            csvLines.Add(string.Join(",", headers.Select(EscapeCsvValue)));
+
+            // 2. Build Data Rows
+            foreach (var record in records)
+            {
+                var rowValues = new List<string>();
+                foreach (var header in headers)
+                {
+                    string valueStr = string.Empty;
+                    if (record.TryGetPropertyValue(header, out var node) && node != null)
+                    {
+                        // Primitive values become strings, complex types (like arrays/objects) are serialized as JSON strings
+                        valueStr = node is JsonValue ? node.ToString() : node.ToJsonString();
+                    }
+                    rowValues.Add(EscapeCsvValue(valueStr));
+                }
+                csvLines.Add(string.Join(",", rowValues));
+            }
+
+            File.WriteAllLines(outputPath, csvLines);
+        }
+
+        private static string EscapeCsvValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+
+            // Wrap in quotes and escape internal quotes if the value contains special CSV characters
+            if (value.Contains(",") || value.Contains("\"") || value.Contains("\n") || value.Contains("\r"))
+            {
+                return $"\"{value.Replace("\"", "\"\"")}\"";
+            }
+
+            return value;
+        }
+
         public static void parseProfilesDatabase()
         {
             DirectoryInfo di = new DirectoryInfo(GetCollectionDirectory("Profiles"));
