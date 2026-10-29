@@ -21,6 +21,11 @@ export interface Schedule {
   timezone?: string;
   location?: {
     name?: string;
+    coordinates?: {
+      latitude?: number;
+      longitude?: number;
+    };
+    geocodedAddress?: string;
     address_components?: {
       street_address?: string;
       extended_address?: string;
