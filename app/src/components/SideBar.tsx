@@ -7,12 +7,21 @@ import {
   type TimeRange,
   type TruckStatus,
 } from "../truckStatus";
+import { routeOrigin } from "../geoapifyRouting";
 
 interface SideBarProps {
   selectedTruck: Truck | null;
   visibleTrucks: Truck[];
   onTruckSelect: (truck: Truck | null) => void;
   currentTime: Date;
+  onRouteToSchedule: (scheduleId: number) => void;
+  routeState: {
+    scheduleId: number;
+    status: "loading" | "success" | "error";
+    message: string;
+    distance?: number;
+    distanceUnits?: string;
+  } | null;
 }
 
 interface Profile {
@@ -92,6 +101,8 @@ function SideBar({
   visibleTrucks,
   onTruckSelect,
   currentTime,
+  onRouteToSchedule,
+  routeState,
 }: SideBarProps) {
   if (selectedTruck) {
     const truckProfiles = (selectedTruck.profileIds ?? [])
@@ -173,6 +184,40 @@ function SideBar({
                     {address?.country && <p>{address.country}</p>}
 
                     <p>Time zone: {schedule.timezone || "Not specified"}</p>
+                    <button
+                      className="route-button"
+                      onClick={() => onRouteToSchedule(schedule.id)}
+                      disabled={routeState?.status === "loading"}
+                    >
+                      {routeState?.scheduleId === schedule.id &&
+                      routeState.status === "loading"
+                        ? "Loading route…"
+                        : "Show driving route"}
+                    </button>
+                    {routeState?.scheduleId === schedule.id && (
+                      <>
+                        {routeState.status === "success" &&
+                          typeof routeState.distance === "number" &&
+                          routeState.distanceUnits && (
+                            <p>
+                              Driving distance:{" "}
+                              {routeState.distance.toFixed(2)}{" "}
+                              {routeState.distanceUnits}
+                            </p>
+                          )}
+                        {routeState.status !== "success" && (
+                          <p
+                            className={`route-message route-${routeState.status}`}
+                            role="status"
+                          >
+                            {routeState.message}
+                          </p>
+                        )}
+                      </>
+                    )}
+                    <p className="route-origin">
+                      Route starts at {routeOrigin.address}.
+                    </p>
                   </div>
                 );
               })
