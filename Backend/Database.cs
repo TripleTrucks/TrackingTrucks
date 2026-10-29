@@ -46,6 +46,7 @@ namespace Backend
                 Console.WriteLine(jsonString);
             }
         }
+
         public static void writeProfilesDatabase(string fileName, string json)
         {
             WriteDatabaseRecord("Profiles", fileName, json);
@@ -95,6 +96,28 @@ namespace Backend
             if (!File.Exists(filePath))
             {
                 throw new FileNotFoundException("Truck record was not found.", filePath);
+            }
+
+            File.Delete(filePath);
+        }
+
+        public static void deleteSchedulesDatabase(string fileName)
+        {
+            string filePath = GetDatabaseRecordPath("Schedules", fileName);
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException("Schedule record was not found.", filePath);
+            }
+
+            File.Delete(filePath);
+        }
+
+        public static void deleteProfilesDatabase(string fileName)
+        {
+            string filePath = GetDatabaseRecordPath("Profiles", fileName);
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException("Profile record was not found.", filePath);
             }
 
             File.Delete(filePath);
@@ -295,6 +318,7 @@ namespace Backend
                 }
             }
         }
+
         public static void pullGitDatabase()
         {
             string repoUrl = "https://github.com/TripleTrucks/TrackingTrucks.git";
