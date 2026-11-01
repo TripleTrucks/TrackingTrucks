@@ -20,6 +20,7 @@ For PR build/lint checks and automatic testing deployments after `development` u
 | PR opened/updated targeting `main` | No PR-check workflow | None |
 | PR merged into `main` | ARC calls Jenkins `DEPLOY_CODE` with the exact merge SHA | Production; publish image only after deployment verification |
 | PR closed without merging, or direct push to `main` | No automatic production deployment | None |
+| Daily at 23:59 America/New_York | `SYNC_STAGING` builds the latest `development` branch | Staging; fresh local image, no registry publication |
 
 There are no unit/integration suites or C# lint checks yet. Jenkins deploys the frontend only; the backend is compiled by CI but is not deployed by these jobs. A production merge does not update `development`, so it does not trigger testing.
 
@@ -162,7 +163,7 @@ Source it again in each new shell. The kubeconfig grants cluster administrator a
 | [`orchestrator.yaml`](orchestrator.yaml) | Shared cluster context/timeout, Rancher hostname/display name, Rancher and Jenkins chart versions. Tailscale access settings document routing; they do not provision it. |
 | [`rancher/rancherConfig.yaml`](rancher/rancherConfig.yaml) | Rancher Helm values: replica count, Traefik ingress and private-CA TLS. Hostname is injected from the orchestrator. |
 | [`jenkins/jenkinsConfig.yaml`](jenkins/jenkinsConfig.yaml) | Jenkins controller resources, storage, plugin pins and Configuration as Code settings. |
-| [`jenkins/environments.yaml`](jenkins/environments.yaml) | Production/testing endpoints and GitHub/Jenkins connection settings. Both jobs are seeded; staging is not deployed. |
+| [`jenkins/environments.yaml`](jenkins/environments.yaml) | Production/testing/staging endpoints and GitHub/Jenkins connection settings. All three jobs are seeded; staging builds and deploys development nightly via `SYNC_STAGING`. |
 | [`jenkins/scripts/deploy-code-rbac.yaml`](jenkins/scripts/deploy-code-rbac.yaml) | Production namespace, deployment service account/RBAC, Jenkins agent permissions, and legacy release PVC. |
 | [`artifacts/values.yaml`](../artifacts/values.yaml) | Zot resources, PVC, NodePort, TLS/authentication and read/push policies. |
 | [`jenkins/jobs/deployCode.Jenkinsfile`](jenkins/jobs/deployCode.Jenkinsfile) | Job parameters, temporary agent Pod YAML and deployment stages. |
@@ -664,3 +665,7 @@ kubectl --context "$KUBE_CONTEXT" -n arc-runners get pods,autoscalingrunnersets
 ```
 
 The runner namespace is intentionally separate from `testing`; Jenkins deploys the application into testing. At zero idle runners, ARC's listener can be running without a runner pod. See the [runner guide](#12-github-actions-and-arc) for credentials and access restrictions before enabling it.
+
+## 14. Nightly staging environment
+
+See [nightly staging setup](jenkins/STAGING.md) for `SYNC_STAGING`, its 23:59 America/New_York schedule and the same one-time Tailscale routing setup used for testing and production.
