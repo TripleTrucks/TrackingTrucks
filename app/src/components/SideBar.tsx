@@ -1,55 +1,33 @@
 
 import type { Truck } from "../Home";
+import {
+  getTruckStatus,
+  schedules,
+  type DayKey,
+  type TimeRange,
+  type TruckStatus,
+} from "../truckStatus";
+import { routeOrigin } from "../geoapifyRouting";
 
 interface SideBarProps {
   selectedTruck: Truck | null;
   visibleTrucks: Truck[];
   onTruckSelect: (truck: Truck | null) => void;
+  currentTime: Date;
+  onRouteToSchedule: (scheduleId: number) => void;
+  routeState: {
+    scheduleId: number;
+    status: "loading" | "success" | "error";
+    message: string;
+    distance?: number;
+    distanceUnits?: string;
+  } | null;
 }
 
 interface Profile {
   id: number;
   displayname: string;
   truckIds: number[];
-}
-
-interface TimeRange {
-  startTime: string;
-  endTime: string;
-}
-
-type DayKey =
-  | "monday"
-  | "tuesday"
-  | "wednesday"
-  | "thursday"
-  | "friday"
-  | "saturday"
-  | "sunday";
-
-interface AddressComponents {
-  street_address?: string;
-  extended_address?: string;
-  city?: string;
-  state_province?: string;
-  postal_code?: string;
-  country?: string;
-}
-
-interface Schedule {
-  id: number;
-  truckIds: number[];
-  location?: {
-    name?: string;
-    address_components?: AddressComponents;
-  };
-  monday?: TimeRange[];
-  tuesday?: TimeRange[];
-  wednesday?: TimeRange[];
-  thursday?: TimeRange[];
-  friday?: TimeRange[];
-  saturday?: TimeRange[];
-  sunday?: TimeRange[];
 }
 
 const profileFiles = import.meta.glob<Profile>(
@@ -60,16 +38,7 @@ const profileFiles = import.meta.glob<Profile>(
   }
 );
 
-const scheduleFiles = import.meta.glob<Schedule>(
-  "/Database/Schedules/*.json",
-  {
-    eager: true,
-    import: "default",
-  }
-);
-
 const profiles = Object.values(profileFiles);
-const schedules = Object.values(scheduleFiles);
 
 const days: { label: string; key: DayKey }[] = [
   { label: "Monday", key: "monday" },
@@ -116,10 +85,24 @@ function formatSchedule(ranges: TimeRange[] | undefined): string {
     .join(", ");
 }
 
+function StatusBadge({ status }: { status: TruckStatus }) {
+  return (
+    <div
+      className={`status-badge status-${status.className}`}
+      role="status"
+    >
+      {status.name}
+    </div>
+  );
+}
+
 function SideBar({
   selectedTruck,
   visibleTrucks,
   onTruckSelect,
+  currentTime,
+  onRouteToSchedule,
+  routeState,
 }: SideBarProps) {
   if (selectedTruck) {
     const truckProfiles = (selectedTruck.profileIds ?? [])
@@ -129,6 +112,10 @@ function SideBar({
     const truckSchedules = (selectedTruck.scheduleIds ?? [])
       .map((id) => schedules.find((schedule) => schedule.id === id))
       .filter((schedule) => schedule !== undefined);
+    const truckStatus = getTruckStatus(
+      selectedTruck.scheduleIds ?? [],
+      currentTime
+    );
 
     return (
       <aside className="sidebar">
@@ -141,6 +128,7 @@ function SideBar({
 
         <div className="truck-details">
           <h2>{selectedTruck.truckname}</h2>
+          <StatusBadge status={truckStatus} />
 
           <div className="truck-tags">
             {selectedTruck.tags.map((tag) => (
@@ -194,6 +182,42 @@ function SideBar({
                     {cityStatePostal && <p>{cityStatePostal}</p>}
 
                     {address?.country && <p>{address.country}</p>}
+
+                    <p>Time zone: {schedule.timezone || "Not specified"}</p>
+                    <button
+                      className="route-button"
+                      onClick={() => onRouteToSchedule(schedule.id)}
+                      disabled={routeState?.status === "loading"}
+                    >
+                      {routeState?.scheduleId === schedule.id &&
+                      routeState.status === "loading"
+                        ? "Loading route…"
+                        : "Show driving route"}
+                    </button>
+                    {routeState?.scheduleId === schedule.id && (
+                      <>
+                        {routeState.status === "success" &&
+                          typeof routeState.distance === "number" &&
+                          routeState.distanceUnits && (
+                            <p>
+                              Driving distance:{" "}
+                              {routeState.distance.toFixed(2)}{" "}
+                              {routeState.distanceUnits}
+                            </p>
+                          )}
+                        {routeState.status !== "success" && (
+                          <p
+                            className={`route-message route-${routeState.status}`}
+                            role="status"
+                          >
+                            {routeState.message}
+                          </p>
+                        )}
+                      </>
+                    )}
+                    <p className="route-origin">
+                      Route starts at {routeOrigin.address}.
+                    </p>
                   </div>
                 );
               })
@@ -265,6 +289,13 @@ function SideBar({
               <div className="truck-card-name">
                 {truck.truckname}
               </div>
+
+              <StatusBadge
+                status={getTruckStatus(
+                  truck.scheduleIds ?? [],
+                  currentTime
+                )}
+              />
 
               <div className="truck-card-tags">
                 {truck.tags.join(" • ")}
