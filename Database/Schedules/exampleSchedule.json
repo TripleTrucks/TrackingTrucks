@@ -1,9 +1,15 @@
-{
-    "id" : 1,
+"id" : 1,
     "truckIds" : [1],
-    "last-revised": "10/20/2026",
+    "last-revised": "10/27/2026",
+    "timezone": "America/New_York",
+    "canceled": false,
+    "soldOut": false,
     "location": {
-      "name": "Example Truck (very cool)",
+      "name": "Downtown Retail Center",
+      "coordinates": {
+        "latitude": 36.3033,
+        "longitude": -82.3692
+      },
       "address_components": {
         "street_address": "123 Main Street",
         "extended_address": "Suite 400",
@@ -14,10 +20,10 @@
         }
     },
     "monday": [
-        {"startTime": "06:07", "endTime": "17:00"}
+        {"startTime": "08:00", "endTime": "17:00"}
     ],
     "tuesday": [
-        {"startTime": "04:20", "endTime": "17:00"}
+        {"startTime": "08:00", "endTime": "17:00"}
     ],
     "wednesday": [
         {"startTime": "08:00", "endTime": "17:00"}
