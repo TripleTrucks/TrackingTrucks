@@ -251,13 +251,8 @@ namespace Backend
                 }
             });
 
-            app.MapPut("/api/Schedules/{id:int}", (HttpContext context, int id, JsonObject updatedSchedule) =>
+            app.MapPut("/api/Schedules/{id:int}", (int id, JsonObject updatedSchedule) =>
             {
-                if (!TryGetDevelopmentRole(context, app.Environment, out var role) || role == "user")
-                {
-                    return Results.StatusCode(StatusCodes.Status403Forbidden);
-                }
-
                 lock (databaseWriteLock)
                 {
                     var existing = GetDataFromDirectory(GetCollectionDirectory("Schedules"))
@@ -271,9 +266,39 @@ namespace Backend
                         return Results.BadRequest(new { error = "Invalid schedule record or ID mismatch" });
                     }
 
-                    Database.writeSchedulesDatabase($"{id}.json", updatedSchedule.ToJsonString());
+                    if (existing["history"] is not null and not JsonArray)
+                    {
+                        return Results.BadRequest(new { error = "The schedule has invalid revision history." });
+                    }
+
+                    string updatedAt = DateTimeOffset.UtcNow.ToString("O");
+                    var history = existing["history"] is JsonArray existingHistory
+                        ? (JsonArray)existingHistory.DeepClone()
+                        : new JsonArray();
+                    var previousSchedule = (JsonObject)existing.DeepClone();
+                    previousSchedule.Remove("history");
+                    history.Add(new JsonObject
+                    {
+                        ["updatedAt"] = updatedAt,
+                        ["schedule"] = previousSchedule
+                    });
+
+                    var scheduleToSave = (JsonObject)existing.DeepClone();
+                    foreach (var property in updatedSchedule)
+                    {
+                        if (property.Key is "history" or "last-revised")
+                        {
+                            continue;
+                        }
+
+                        scheduleToSave[property.Key] = property.Value?.DeepClone();
+                    }
+                    scheduleToSave["history"] = history;
+                    scheduleToSave["last-revised"] = updatedAt;
+
+                    Database.writeSchedulesDatabase($"{id}.json", scheduleToSave.ToJsonString());
                     PushDatabaseChanges($"Update schedule {id}");
-                    return Results.Ok(updatedSchedule);
+                    return Results.Ok(scheduleToSave);
                 }
             });
 

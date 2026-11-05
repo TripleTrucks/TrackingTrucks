@@ -15,5 +15,7 @@ environments:
     hostname: testing.tail7af369.ts.net
 
   staging:
+    # SYNC_STAGING builds the latest development branch for staging nightly at
+    # 23:59 America/New_York (schedule lives in syncStaging.Jenkinsfile/seed-jobs.sh).
     namespace: staging
     hostname: staging.tail7af369.ts.net

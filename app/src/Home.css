@@ -70,6 +70,25 @@
   z-index: 10;
 }
 
+.sidebar-revision {
+  padding: 14px 20px;
+  border-bottom: 1px solid #dddddd;
+  background: #fafafa;
+}
+
+.sidebar-revision h2 {
+  margin: 0 0 5px;
+  color: #c1121f;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.sidebar-revision p {
+  margin: 0;
+  color: #444444;
+  font-size: 13px;
+}
+
 /* Sidebar header */
 
 .sidebar-header {
@@ -169,6 +188,12 @@
   color: #666666;
 
   font-size: 14px;
+}
+
+.truck-card-revision {
+  margin-top: 8px;
+  color: #666666;
+  font-size: 12px;
 }
 
 /* Truck details */
