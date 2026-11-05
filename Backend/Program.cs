@@ -13,6 +13,7 @@ namespace Backend
             Database.clearFolder("localRepoCopy");
             Database.pullGitDatabase();
             API.startAPI(args);
+            /*
             Database.parseProfilesDatabase();
             Database.parseSchedulesDatabase();
             Console.Write("Would you like to add Profile(1), Schedule(2), or Trucks(3)? Please enter 1, 2, or 3: ");
@@ -41,7 +42,9 @@ namespace Backend
                 string jsonInput = Console.ReadLine();
                 Database.writeTrucksDatabase(truckName, jsonInput);
             }
+            
             Database.pushGitDatabase("Backend Automated Commit", "octowalrus", apiKey);
+            */
             Database.clearFolder("..\\localRepoCopy");
         }
     }
