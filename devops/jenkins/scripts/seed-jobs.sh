@@ -97,7 +97,6 @@ RBAC
     --from-file="compile-application.sh=$ROOT/scripts/compile-application.sh" \
     --from-file="deploy-code.sh=$ROOT/scripts/deploy-code.sh" \
     --from-file="Dockerfile=$ROOT/scripts/Dockerfile" \
-    --from-file="nginx.conf=$ROOT/scripts/nginx.conf" \
     --dry-run=client -o yaml | "${kube[@]}" apply -f -
 done <<< "$SETTINGS"
 # Remove obsolete cross-namespace access from the former testing-image sync.

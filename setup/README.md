@@ -1,7 +1,7 @@
 # Environment setup
 
 These scripts prepare your computer to work on TrackingTrucks. They install
-React, TypeScript, Vite, Electron, and their development dependencies. Node 24 or
+React, TypeScript, Vite, Electron, .NET 8 SDK/runtime, and their development dependencies. Node 24 or
 newer is required. Docker is optional.
 
 Run the commands below from the **TrackingTrucks repository folder**. You need
@@ -87,7 +87,7 @@ On Linux/macOS:
 npm run dev
 ```
 
-Open the URL printed in the terminal. Stop the development server with **Ctrl+C**.
+Open the URL printed in the terminal. Vite and the backend start together. Stop both with **Ctrl+C**.
 When running on the remote Linux server, forward the printed port through VS
 Code's **Ports** tab to open it in your local browser.
 
@@ -95,11 +95,11 @@ To build and preview on Windows:
 
 ```powershell
 npm.cmd run build
-npm.cmd run preview
+npm.cmd start
 ```
 
 On Linux/macOS, use `npm` instead of `npm.cmd`. The production build goes into
-`dist/`; preview is for local testing, not production hosting.
+`build/app/` (including the frontend in `wwwroot/`). `npm start` serves the full app on port 5173.
 
 ## After pulling changes
 

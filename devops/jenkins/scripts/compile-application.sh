@@ -4,9 +4,13 @@ set -euo pipefail
 
 export ELECTRON_SKIP_BINARY_DOWNLOAD=1
 export npm_config_cache=/tmp/npm-cache
+export TRACKINGTRUCKS_DOTNET_DIR=/tmp/dotnet8
+export DOTNET_CLI_HOME=/tmp/dotnet-cli
+export NUGET_PACKAGES=/tmp/nuget-packages
 npm ci --include=dev
 npm run build
-test -s dist/index.html
+test -s build/app/wwwroot/index.html
+test -s build/app/Backend.dll
 
 node <<'JS'
 const fs = require('node:fs');
@@ -20,8 +24,8 @@ fs.writeFileSync('.deploy-code-release.json', JSON.stringify({
 }, null, 2) + '\n');
 JS
 
-# Only compiled public assets enter the image context; source, .env and node_modules do not.
+# Only published application files enter the image context; .env and source stay out.
 mkdir image-context
-cp -R dist image-context/dist
+cp -R build/app image-context/app
 cp .deploy-code-release.json image-context/release.json
-cp /opt/deploy-code/Dockerfile /opt/deploy-code/nginx.conf image-context/
+cp /opt/deploy-code/Dockerfile image-context/

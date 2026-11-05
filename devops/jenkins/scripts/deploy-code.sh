@@ -223,12 +223,14 @@ const deployment = {
           imagePullPolicy: process.env.DEPLOY_NAMESPACE !== 'production' ? 'Never' : 'IfNotPresent',
           securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ['ALL']}},
           ports: [{name: 'http', containerPort: 5173}],
-          readinessProbe: {httpGet: {path: '/index.html', port: 'http'}, periodSeconds: 5},
+          envFrom: [{secretRef: {name: 'backend-env', optional: true}}],
+          startupProbe: {httpGet: {path: '/healthz', port: 'http'}, periodSeconds: 5, failureThreshold: 60},
+          readinessProbe: {httpGet: {path: '/api/health', port: 'http'}, periodSeconds: 5},
           livenessProbe: {httpGet: {path: '/healthz', port: 'http'}, periodSeconds: 10},
-          resources: {requests: {cpu: '100m', memory: '64Mi'}, limits: {cpu: '1', memory: '256Mi'}},
-          volumeMounts: [{name: 'tmp', mountPath: '/tmp'}]
+          resources: {requests: {cpu: '100m', memory: '256Mi'}, limits: {cpu: '1', memory: '1Gi'}},
+          volumeMounts: [{name: 'tmp', mountPath: '/tmp'}, {name: 'backend-repo', mountPath: '/app/localRepoCopy'}]
         }],
-        volumes: [{name: 'tmp', emptyDir: {}}]
+        volumes: [{name: 'tmp', emptyDir: {}}, {name: 'backend-repo', emptyDir: {}}]
       }
     }
   }
@@ -261,6 +263,10 @@ const fs = require('node:fs');
       }
       const index = await fetch(base + '/index.html', {signal: AbortSignal.timeout(5000)});
       if (!index.ok || !(await index.text()).includes('<html')) throw new Error('Invalid application index');
+      if (!process.env.SELECTED_IMAGE) {
+        const health = await fetch(base + '/api/health', {signal: AbortSignal.timeout(5000)});
+        if (!health.ok || (await health.json()).status !== 'ok') throw new Error('Backend is not healthy');
+      }
       const release = {image: process.env.DEPLOY_IMAGE, commit: baked.commit, branch: baked.branch, sourceRelease: baked.release};
       Object.assign(release, {deployment: process.env.RELEASE_ID, buildUrl: process.env.BUILD_URL,
         deployedAt: new Date().toISOString(), status: 'verified'});

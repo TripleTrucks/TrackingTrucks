@@ -4,11 +4,14 @@
     "version": "0.0.0",
     "type": "module",
     "scripts": {
-        "dev": "vite",
-        "build": "tsc --noEmit && vite build",
+        "dev": "npm run tools:compile --silent && node .cache/scripts/app.js dev",
+        "build": "npm run tools:compile --silent && node .cache/scripts/app.js build",
         "preview": "vite preview",
         "geocode:schedules": "node --env-file-if-exists=.env scripts/geocode-schedules.mjs",
-        "lint": "eslint app vite.config.ts --max-warnings=0"
+        "lint": "eslint app vite.config.ts --max-warnings=0",
+        "start": "npm run tools:compile --silent && node .cache/scripts/app.js start",
+        "setup:backend": "npm run tools:compile --silent && node .cache/scripts/app.js setup",
+        "tools:compile": "tsc -p scripts/tsconfig.json"
     },
     "dependencies": {
         "leaflet": "^1.9.4",
