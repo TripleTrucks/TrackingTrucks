@@ -21,6 +21,22 @@ coordinates have not changed, and respects Geoapify's advertised five
 requests-per-second limit. It geocodes only schedules with address components.
 The map displays OpenStreetMap and Geoapify attribution as required.
 
+## Manage schedules
+
+Open **Manage schedules** in the website navigation to edit upcoming weekly
+hours. Each save records the previous schedule version in its `history` array
+and writes the UTC time of the change to `last-revised`. The schedule sidebar
+shows the latest recorded revision time.
+
+The website loads profiles, trucks, and schedules through the .NET API; it does
+not load database JSON files directly. The backend clones the `main` branch of
+`ZenMastering/TrackingTrucks` at startup and serves records from that clone.
+Start the API while developing with `dotnet run --project Backend`. Vite
+forwards `/api` requests to the backend's HTTP port (`62926`). Set
+`API_PROXY_TARGET` in `.env` if the API is running at a different address.
+Schedule updates are saved to the backend's working clone and pushed to `main`,
+so configure `API_PRIVATE_KEY` for the backend before saving.
+
 ## Show driving routes
 
 The truck detail panel can request a driving route from 325 Treasure Lane,

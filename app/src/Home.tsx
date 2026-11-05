@@ -8,7 +8,13 @@ import {
   getDrivingRoute,
   type DrivingRoute,
 } from "./geoapifyRouting";
-import { schedules } from "./truckStatus";
+import {
+  fetchProfiles,
+  fetchSchedules,
+  fetchTrucks,
+} from "./schedulesApi";
+import type { Profile, Truck } from "./dataTypes";
+import type { Schedule } from "./truckStatus";
 
 type RouteState = {
   scheduleId: number;
@@ -17,18 +23,17 @@ type RouteState = {
   route?: DrivingRoute;
 };
 
-export interface Truck {
-  id: number;
-  truckname: string;
-  tags: string[];
-  profileIds: number[];
-  scheduleIds: number[];
-}
-
 function Home() {
   const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
   const [visibleTrucks, setVisibleTrucks] = useState<Truck[]>([]);
   const [currentTime, setCurrentTime] = useState(() => new Date());
+  const [currentTrucks, setCurrentTrucks] = useState<Truck[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [currentSchedules, setCurrentSchedules] = useState<Schedule[]>([]);
+  const [scheduleLoadStatus, setScheduleLoadStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [apiError, setApiError] = useState<string | null>(null);
   const [routeState, setRouteState] = useState<RouteState | null>(null);
   const [routeRequest, setRouteRequest] = useState<{
     scheduleId: number;
@@ -40,11 +45,37 @@ function Home() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+
+    Promise.all([
+      fetchTrucks(controller.signal),
+      fetchProfiles(controller.signal),
+      fetchSchedules(controller.signal),
+    ])
+      .then(([trucks, loadedProfiles, schedules]) => {
+        setCurrentTrucks(trucks);
+        setProfiles(loadedProfiles);
+        setCurrentSchedules(schedules);
+        setScheduleLoadStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setApiError(
+            error instanceof Error ? error.message : "The API is unavailable."
+          );
+          setScheduleLoadStatus("error");
+        }
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     if (!routeRequest) {
       return;
     }
 
-    const schedule = schedules.find(
+    const schedule = currentSchedules.find(
       (candidate) => candidate.id === routeRequest.scheduleId
     );
     const coordinates = schedule?.location?.coordinates;
@@ -103,7 +134,7 @@ function Home() {
       });
 
     return () => controller.abort();
-  }, [routeRequest]);
+  }, [currentSchedules, routeRequest]);
 
   function showRoute(scheduleId: number) {
     setRouteRequest({ scheduleId });
@@ -119,6 +150,11 @@ function Home() {
           visibleTrucks={visibleTrucks}
           onTruckSelect={setSelectedTruck}
           currentTime={currentTime}
+          trucks={currentTrucks}
+          profiles={profiles}
+          schedules={currentSchedules}
+          scheduleLoadStatus={scheduleLoadStatus}
+          apiError={apiError}
           onRouteToSchedule={showRoute}
           routeState={
             routeState
@@ -138,6 +174,8 @@ function Home() {
           onTruckSelect={setSelectedTruck}
           onVisibleTrucksChange={setVisibleTrucks}
           currentTime={currentTime}
+          trucks={currentTrucks}
+          schedules={currentSchedules}
           routeState={
             routeState?.route
               ? { status: routeState.status, route: routeState.route }

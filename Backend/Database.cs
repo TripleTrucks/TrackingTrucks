@@ -13,6 +13,9 @@ namespace Backend
 {
     public class Database
     {
+        private const string DatabaseRepositoryUrl = "https://github.com/ZenMastering/TrackingTrucks.git";
+        private const string DatabaseBranch = "main";
+
         static Dictionary<string, string> databaseProfileVars = new Dictionary<string, string>();
         static Dictionary<string, string> databaseSchedulesVars = new Dictionary<string, string>();
         static Dictionary<string, string> databaseTrucksVars = new Dictionary<string, string>();
@@ -282,7 +285,6 @@ namespace Backend
         public static void pushGitDatabase(string commitMessage, string username, string token)
         {
             string localPath = "localRepoCopy";
-            string targetBranch = "development";
             using (var repo = new Repository(localPath))
             {
                 // 1. Stage all changes (new, modified, or deleted JSON files)
@@ -317,10 +319,10 @@ namespace Backend
                 };
 
                 // 6. Push to the remote branch
-                string pushRefSpec = $@"refs/heads/{targetBranch}";
+                string pushRefSpec = $@"refs/heads/{DatabaseBranch}";
                 repo.Network.Push(remote, pushRefSpec, pushOptions);
 
-                Console.WriteLine($"Successfully pushed changes to branch '{targetBranch}'!");
+                Console.WriteLine($"Successfully pushed changes to branch '{DatabaseBranch}'!");
             }
         }
 
@@ -393,16 +395,14 @@ namespace Backend
 
         public static void pullGitDatabase()
         {
-            string repoUrl = "https://github.com/TripleTrucks/TrackingTrucks.git";
             string localPath = "localRepoCopy";
-            string targetBranch = "development";
             var cloneOptions = new CloneOptions
             {
-                BranchName = targetBranch
+                BranchName = DatabaseBranch
             };
             // Clone the specific branch
-            Repository.Clone(repoUrl, localPath, cloneOptions);
-            Console.WriteLine($"Repository cloned successfully on branch '{targetBranch}'!");
+            Repository.Clone(DatabaseRepositoryUrl, localPath, cloneOptions);
+            Console.WriteLine($"Repository cloned successfully on branch '{DatabaseBranch}'!");
         }
     }
 }
