@@ -13,12 +13,10 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    {window.location.pathname === "/" ? <IndexRoute /> : null}
-    {window.location.pathname === "/schedules" ? <ScheduleManager /> : null}
-    {window.location.pathname !== "/" &&
-    window.location.pathname !== "/schedules" ? (
     {window.location.pathname === "/" ? (
       <IndexRoute />
+    ) : window.location.pathname === "/schedules" ? (
+      <ScheduleManager />
     ) : window.location.pathname === "/signin" ? (
       <SignInPage />
     ) : (
@@ -26,6 +24,6 @@ createRoot(root).render(
         <h1>Page not found.</h1>
         <a href="/">Back to TrackingTrucks</a>
       </main>
-    ) : null}
+    )}
   </StrictMode>
 );
