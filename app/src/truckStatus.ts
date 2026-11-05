@@ -3,6 +3,11 @@ export interface TimeRange {
   endTime: string;
 }
 
+export interface ScheduleHistoryEntry {
+  updatedAt: string;
+  schedule: Omit<Schedule, "history">;
+}
+
 export type DayKey =
   | "monday"
   | "tuesday"
@@ -16,6 +21,7 @@ export interface Schedule {
   id: number;
   truckIds: number[];
   "last-revised"?: string;
+  history?: ScheduleHistoryEntry[];
   canceled?: boolean;
   soldOut?: boolean;
   timezone?: string;
@@ -58,16 +64,6 @@ export interface TruckStatus {
 }
 
 const STALE_AFTER_DAYS = 7;
-
-const scheduleFiles = import.meta.glob<Schedule>(
-  "/Database/Schedules/*.json",
-  {
-    eager: true,
-    import: "default",
-  }
-);
-
-export const schedules = Object.values(scheduleFiles);
 
 const dayKeys: DayKey[] = [
   "sunday",
@@ -234,10 +230,11 @@ function toTruckStatus(name: TruckStatusName): TruckStatus {
 
 export function getTruckStatus(
   scheduleIds: number[],
-  now: Date
+  now: Date,
+  availableSchedules: Schedule[]
 ): TruckStatus {
   const truckSchedules = scheduleIds
-    .map((id) => schedules.find((schedule) => schedule.id === id))
+    .map((id) => availableSchedules.find((schedule) => schedule.id === id))
     .filter((schedule): schedule is Schedule => schedule !== undefined);
   const statuses = truckSchedules.map((schedule) =>
     getScheduleStatus(schedule, now)
