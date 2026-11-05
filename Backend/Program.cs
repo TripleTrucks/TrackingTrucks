@@ -1,5 +1,4 @@
-﻿using System;
-using DotNetEnv;
+﻿using DotNetEnv;
 
 namespace Backend
 {
@@ -7,12 +6,11 @@ namespace Backend
     {
         static void Main(string[] args)
         {
-            string apiKey = "";
             DotNetEnv.Env.TraversePath().Load();
-            apiKey = Environment.GetEnvironmentVariable("API_PRIVATE_KEY");
             Database.clearFolder("localRepoCopy");
             Database.pullGitDatabase();
             API.startAPI(args);
+            /*
             Database.parseProfilesDatabase();
             Database.parseSchedulesDatabase();
             Console.Write("Would you like to add Profile(1), Schedule(2), or Trucks(3)? Please enter 1, 2, or 3: ");
@@ -23,7 +21,7 @@ namespace Backend
                 string profileName = Console.ReadLine();
                 Console.WriteLine("Please input profile json:");
                 string jsonInput = Console.ReadLine();
-                Database.writeProfilesDatabase(profileName, jsonInput); 
+                Database.writeProfilesDatabase(profileName, jsonInput);
             }
             if (input == 2)
             {
@@ -41,7 +39,9 @@ namespace Backend
                 string jsonInput = Console.ReadLine();
                 Database.writeTrucksDatabase(truckName, jsonInput);
             }
+            
             Database.pushGitDatabase("Backend Automated Commit", "octowalrus", apiKey);
+            */
             Database.clearFolder("..\\localRepoCopy");
         }
     }

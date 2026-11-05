@@ -46,7 +46,7 @@ printf 'Deploying Jenkins %s into namespace %s on context %s\n' \
 "${kube[@]}" -n production get configmap registry-settings registry-ca registry-buildkit >/dev/null
 "${kube[@]}" -n production get secret registry-jenkins registry-reader -o name >/dev/null
 
-# Seed DEPLOY_CODE and publish its scripts alongside the Jenkins installation.
+# Seed production/testing deployments and the nightly staging sync.
 JOB_CONFIG="$(mktemp)"
 trap 'rm -f -- "$JOB_CONFIG"' EXIT
 bash "$ROOT/scripts/seed-jobs.sh" "$CONTEXT" "$JOB_CONFIG"
