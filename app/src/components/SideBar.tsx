@@ -1,35 +1,37 @@
 
-import type { Truck } from "../Home";
+import type { Profile, Truck } from "../dataTypes";
 import {
   getTruckStatus,
-  schedules,
   type DayKey,
+  type Schedule,
   type TimeRange,
   type TruckStatus,
 } from "../truckStatus";
+import { routeOrigin } from "../geoapifyRouting";
+import {
+  formatRevisionDate,
+  getLatestScheduleRevision,
+} from "../schedulesApi";
 
 interface SideBarProps {
   selectedTruck: Truck | null;
   visibleTrucks: Truck[];
   onTruckSelect: (truck: Truck | null) => void;
   currentTime: Date;
+  trucks: Truck[];
+  profiles: Profile[];
+  schedules: Schedule[];
+  scheduleLoadStatus: "loading" | "ready" | "error";
+  apiError: string | null;
+  onRouteToSchedule: (scheduleId: number) => void;
+  routeState: {
+    scheduleId: number;
+    status: "loading" | "success" | "error";
+    message: string;
+    distance?: number;
+    distanceUnits?: string;
+  } | null;
 }
-
-interface Profile {
-  id: number;
-  displayname: string;
-  truckIds: number[];
-}
-
-const profileFiles = import.meta.glob<Profile>(
-  "/Database/Profiles/*.json",
-  {
-    eager: true,
-    import: "default",
-  }
-);
-
-const profiles = Object.values(profileFiles);
 
 const days: { label: string; key: DayKey }[] = [
   { label: "Monday", key: "monday" },
@@ -92,7 +94,31 @@ function SideBar({
   visibleTrucks,
   onTruckSelect,
   currentTime,
+  trucks,
+  profiles,
+  schedules,
+  scheduleLoadStatus,
+  apiError,
+  onRouteToSchedule,
+  routeState,
 }: SideBarProps) {
+  function getTruckRevisionLabel(truck: Truck): string {
+    if (scheduleLoadStatus === "loading") {
+      return "Checking…";
+    }
+
+    if (scheduleLoadStatus === "error") {
+      return "Unavailable";
+    }
+
+    const truckSchedules = (truck.scheduleIds ?? [])
+      .map((id) => schedules.find((schedule) => schedule.id === id))
+      .filter((schedule): schedule is Schedule => schedule !== undefined);
+    const lastRevised = getLatestScheduleRevision(truckSchedules);
+
+    return lastRevised ? formatRevisionDate(lastRevised) : "Not recorded";
+  }
+
   if (selectedTruck) {
     const truckProfiles = (selectedTruck.profileIds ?? [])
       .map((id) => profiles.find((profile) => profile.id === id))
@@ -103,7 +129,8 @@ function SideBar({
       .filter((schedule) => schedule !== undefined);
     const truckStatus = getTruckStatus(
       selectedTruck.scheduleIds ?? [],
-      currentTime
+      currentTime,
+      schedules
     );
 
     return (
@@ -173,6 +200,40 @@ function SideBar({
                     {address?.country && <p>{address.country}</p>}
 
                     <p>Time zone: {schedule.timezone || "Not specified"}</p>
+                    <button
+                      className="route-button"
+                      onClick={() => onRouteToSchedule(schedule.id)}
+                      disabled={routeState?.status === "loading"}
+                    >
+                      {routeState?.scheduleId === schedule.id &&
+                      routeState.status === "loading"
+                        ? "Loading route…"
+                        : "Show driving route"}
+                    </button>
+                    {routeState?.scheduleId === schedule.id && (
+                      <>
+                        {routeState.status === "success" &&
+                          typeof routeState.distance === "number" &&
+                          routeState.distanceUnits && (
+                            <p>
+                              Driving distance:{" "}
+                              {routeState.distance.toFixed(2)}{" "}
+                              {routeState.distanceUnits}
+                            </p>
+                          )}
+                        {routeState.status !== "success" && (
+                          <p
+                            className={`route-message route-${routeState.status}`}
+                            role="status"
+                          >
+                            {routeState.message}
+                          </p>
+                        )}
+                      </>
+                    )}
+                    <p className="route-origin">
+                      Route starts at {routeOrigin.address}.
+                    </p>
                   </div>
                 );
               })
@@ -215,6 +276,11 @@ function SideBar({
               <p>Schedule information unavailable.</p>
             )}
           </section>
+
+          <section className="sidebar-section" aria-live="polite">
+            <h3>Schedule last updated</h3>
+            <p>{getTruckRevisionLabel(selectedTruck)}</p>
+          </section>
           
           <section className="sidebar-section">
             <h3>Social Media</h3>
@@ -227,15 +293,30 @@ function SideBar({
 
   return (
     <aside className="sidebar">
+      {apiError && (
+        <section className="sidebar-api-error" role="alert">
+          <h2>Backend API unavailable</h2>
+          <p>{apiError}</p>
+          <p>Start the Backend project and reload the page.</p>
+        </section>
+      )}
+
       <div className="sidebar-header">
         <h2>Available Trucks</h2>
       </div>
 
       <div className="truck-list">
-        {visibleTrucks.length === 0 ? (
+        {scheduleLoadStatus === "loading" ? (
+          <p style={{ padding: "20px" }}>Loading truck data from the API…</p>
+        ) : scheduleLoadStatus === "error" ? null : visibleTrucks.length === 0 ? (
           <p style={{ padding: "20px" }}>No trucks visible in this map area.</p>
         ) : (
-          visibleTrucks.map((truck) => (
+          visibleTrucks
+            .map((visibleTruck) =>
+              trucks.find((truck) => truck.id === visibleTruck.id)
+            )
+            .filter((truck): truck is Truck => truck !== undefined)
+            .map((truck) => (
             <button
               key={truck.id}
               className="truck-card"
@@ -248,15 +329,20 @@ function SideBar({
               <StatusBadge
                 status={getTruckStatus(
                   truck.scheduleIds ?? [],
-                  currentTime
+                  currentTime,
+                  schedules
                 )}
               />
 
               <div className="truck-card-tags">
                 {truck.tags.join(" • ")}
               </div>
+
+              <div className="truck-card-revision">
+                Schedule last updated: {getTruckRevisionLabel(truck)}
+              </div>
             </button>
-          ))
+            ))
         )}
       </div>
     </aside>

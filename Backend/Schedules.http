@@ -1,0 +1,24 @@
+@baseUrl = http://localhost:62926
+
+### List schedules
+GET {{baseUrl}}/api/Schedules
+
+### Get a schedule
+GET {{baseUrl}}/api/Schedules/1
+
+### Update a schedule (the prior version is archived automatically)
+PUT {{baseUrl}}/api/Schedules/1
+Content-Type: application/json
+
+{
+  "id": 1,
+  "truckIds": [1],
+  "timezone": "America/New_York",
+  "monday": [{ "startTime": "09:00", "endTime": "17:00" }],
+  "tuesday": [{ "startTime": "09:00", "endTime": "17:00" }],
+  "wednesday": [{ "startTime": "09:00", "endTime": "17:00" }],
+  "thursday": [{ "startTime": "09:00", "endTime": "17:00" }],
+  "friday": [{ "startTime": "09:00", "endTime": "17:00" }],
+  "saturday": [],
+  "sunday": []
+}

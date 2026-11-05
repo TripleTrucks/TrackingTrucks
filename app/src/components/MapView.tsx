@@ -1,88 +1,108 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import {
   MapContainer,
   TileLayer,
   Marker,
   Popup,
+  Polyline,
+  CircleMarker,
   useMap,
 } from "react-leaflet";
 
 import "leaflet/dist/leaflet.css";
 
-import type { Truck } from "../Home";
-import { getTruckStatus, schedules } from "../truckStatus";
+import type { Truck } from "../dataTypes";
+import type { DrivingRoute, MapPosition } from "../geoapifyRouting";
+import {
+  getTruckStatus,
+  type Schedule,
+} from "../truckStatus";
 
 interface MapViewProps {
   selectedTruck: Truck | null;
   onTruckSelect: (truck: Truck) => void;
   onVisibleTrucksChange: (trucks: Truck[]) => void;
   currentTime: Date;
+  trucks: Truck[];
+  schedules: Schedule[];
+  routeState: {
+    status: "loading" | "success" | "error";
+    route?: DrivingRoute;
+  } | null;
 }
 
-const truckFiles = import.meta.glob<Truck>(
-  "../../../Database/Trucks/*.json",
-  {
-    eager: true,
-    import: "default",
-  }
-);
+interface TruckLocation {
+  truck: Truck;
+  schedule: Schedule;
+  position: [number, number];
+}
 
-const trucks = Object.values(truckFiles);
+function getTruckLocations(
+  trucks: Truck[],
+  schedules: Schedule[]
+): TruckLocation[] {
+  return trucks.flatMap((truck) =>
+    (truck.scheduleIds ?? [])
+      .map((scheduleId) =>
+        schedules.find((schedule) => schedule.id === scheduleId)
+      )
+      .flatMap((schedule) => {
+        if (!schedule) {
+          return [];
+        }
 
-const truckLocations = trucks.flatMap((truck) =>
-  (truck.scheduleIds ?? [])
-    .map((scheduleId) =>
-      schedules.find((schedule) => schedule.id === scheduleId)
-    )
-    .flatMap((schedule) => {
-      if (!schedule) {
-        return [];
-      }
+        const coordinates = schedule.location?.coordinates;
 
-      const coordinates = schedule.location?.coordinates;
+        if (
+          typeof coordinates?.latitude !== "number" ||
+          typeof coordinates.longitude !== "number" ||
+          !Number.isFinite(coordinates.latitude) ||
+          !Number.isFinite(coordinates.longitude)
+        ) {
+          return [];
+        }
 
-      if (
-        typeof coordinates?.latitude !== "number" ||
-        typeof coordinates.longitude !== "number" ||
-        !Number.isFinite(coordinates.latitude) ||
-        !Number.isFinite(coordinates.longitude)
-      ) {
-        return [];
-      }
+        return [
+          {
+            truck,
+            schedule,
+            position: [coordinates.latitude, coordinates.longitude] as [
+              number,
+              number,
+            ],
+          },
+        ];
+      })
+  );
+}
 
-      return [
-        {
-          truck,
-          schedule,
-          position: [coordinates.latitude, coordinates.longitude] as [
-            number,
-            number,
-          ],
-        },
-      ];
-    })
-);
-
-function FitTruckLocations() {
+function FitTruckLocations({
+  locations,
+}: {
+  locations: TruckLocation[];
+}) {
   const map = useMap();
 
   useEffect(() => {
-    if (truckLocations.length === 0) {
+    if (locations.length === 0) {
       return;
     }
 
     map.fitBounds(
-      truckLocations.map(({ position }) => position),
+      locations.map(({ position }) => position),
       { padding: [40, 40], maxZoom: 17 }
     );
-  }, [map]);
+  }, [map, locations]);
 
   return null;
 }
 
 function VisibleTruckReporter({
   onVisibleTrucksChange,
-}: Pick<MapViewProps, "onVisibleTrucksChange">) {
+  locations,
+}: Pick<MapViewProps, "onVisibleTrucksChange"> & {
+  locations: TruckLocation[];
+}) {
   const map = useMap();
 
   useEffect(() => {
@@ -94,7 +114,7 @@ function VisibleTruckReporter({
         { truck: Truck; distance: number }
       >();
 
-      for (const { truck, position } of truckLocations) {
+      for (const { truck, position } of locations) {
         if (!bounds.contains(position)) {
           continue;
         }
@@ -119,16 +139,54 @@ function VisibleTruckReporter({
     return () => {
       map.off("moveend", updateVisibleTrucks);
     };
-  }, [map, onVisibleTrucksChange]);
+  }, [map, onVisibleTrucksChange, locations]);
 
   return null;
+}
+
+function RouteLayer({
+  positions,
+}: {
+  positions: MapPosition[] | undefined;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (positions && positions.length > 1) {
+      map.fitBounds(positions, { padding: [40, 40] });
+    }
+  }, [map, positions]);
+
+  if (!positions || positions.length < 2) {
+    return null;
+  }
+
+  return (
+    <>
+      <Polyline
+        positions={positions}
+        pathOptions={{ color: "#c1121f", weight: 5, opacity: 0.85 }}
+      />
+      <CircleMarker center={positions[0]} pathOptions={{ color: "#176b32" }}>
+        <Popup>Starting point: 325 Treasure Lane</Popup>
+      </CircleMarker>
+    </>
+  );
 }
 
 function MapView({
   onTruckSelect,
   onVisibleTrucksChange,
   currentTime,
+  trucks,
+  schedules,
+  routeState,
 }: MapViewProps) {
+  const truckLocations = useMemo(
+    () => getTruckLocations(trucks, schedules),
+    [trucks, schedules]
+  );
+
   return (
     <main className="map-container">
       <MapContainer
@@ -136,10 +194,12 @@ function MapView({
         zoom={17}
         style={{ height: "100%", width: "100%" }}
       >
-        <FitTruckLocations />
+        <FitTruckLocations locations={truckLocations} />
         <VisibleTruckReporter
           onVisibleTrucksChange={onVisibleTrucksChange}
+          locations={truckLocations}
         />
+        <RouteLayer positions={routeState?.route?.positions} />
 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> | Powered by <a href="https://www.geoapify.com/">Geoapify</a>'
@@ -165,7 +225,11 @@ function MapView({
               <br />
               {truck.tags.join(" • ")}
               <br />
-              {getTruckStatus(truck.scheduleIds ?? [], currentTime).name}
+              {getTruckStatus(
+                truck.scheduleIds ?? [],
+                currentTime,
+                schedules
+              ).name}
             </Popup>
           </Marker>
         ))}

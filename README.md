@@ -20,3 +20,39 @@ The script skips the schedule template, skips records whose address and saved
 coordinates have not changed, and respects Geoapify's advertised five
 requests-per-second limit. It geocodes only schedules with address components.
 The map displays OpenStreetMap and Geoapify attribution as required.
+
+## Manage schedules
+
+Open **Manage schedules** in the website navigation to edit upcoming weekly
+hours. Each save records the previous schedule version in its `history` array
+and writes the UTC time of the change to `last-revised`. The schedule sidebar
+shows the latest recorded revision time.
+
+The website loads profiles, trucks, and schedules through the .NET API; it does
+not load database JSON files directly. The backend clones the `main` branch of
+`ZenMastering/TrackingTrucks` at startup and serves records from that clone.
+Start the API while developing with `dotnet run --project Backend`. Vite
+forwards `/api` requests to the backend's HTTP port (`62926`). Set
+`API_PROXY_TARGET` in `.env` if the API is running at a different address.
+Schedule updates are saved to the backend's working clone and pushed to `main`,
+so configure `API_PRIVATE_KEY` for the backend before saving.
+
+## Show driving routes
+
+The truck detail panel can request a driving route from 325 Treasure Lane,
+Johnson City, TN 37614 to a scheduled truck location. Routes are requested only
+when someone selects **Show driving route**.
+
+Set `VITE_GEOAPIFY_API_KEY` in the root `.env` file to a Geoapify key with the
+Routing API enabled. Vite embeds `VITE_` variables in the client bundle, so this
+key is visible to website users; restrict it in Geoapify to the Routing API and
+the app's allowed development/production referrers. Do not reuse a secret
+server-side key without applying those restrictions. Restart Vite after editing
+`.env`.
+
+The route is drawn over the existing OpenStreetMap map, which already displays
+OpenStreetMap and Geoapify attribution. The truck details show Geoapify's
+estimated driving distance in miles. Routing requests consume credits based on
+the route's waypoints and distance; see Geoapify's
+[Routing API documentation](https://apidocs.geoapify.com/docs/routing/) and
+[pricing details](https://www.geoapify.com/pricing-details/).

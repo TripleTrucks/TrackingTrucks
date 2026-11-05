@@ -70,6 +70,25 @@
   z-index: 10;
 }
 
+.sidebar-revision {
+  padding: 14px 20px;
+  border-bottom: 1px solid #dddddd;
+  background: #fafafa;
+}
+
+.sidebar-revision h2 {
+  margin: 0 0 5px;
+  color: #c1121f;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.sidebar-revision p {
+  margin: 0;
+  color: #444444;
+  font-size: 13px;
+}
+
 /* Sidebar header */
 
 .sidebar-header {
@@ -171,6 +190,12 @@
   font-size: 14px;
 }
 
+.truck-card-revision {
+  margin-top: 8px;
+  color: #666666;
+  font-size: 12px;
+}
+
 /* Truck details */
 
 .back-button {
@@ -248,6 +273,26 @@
   color: #444444;
 
   font-size: 15px;
+}
+
+.route-button {
+  margin: 12px 0 6px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: #c1121f;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.route-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.route-error {
+  color: #a50e0e !important;
 }
 
 /* Map */

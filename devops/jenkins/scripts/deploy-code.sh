@@ -4,9 +4,13 @@ set -euo pipefail
 : "${DEPLOY_IMAGE:?}"
 : "${RELEASE_ID:?}"
 : "${IMAGE_REPOSITORY:?}"
-[[ "$DEPLOY_NAMESPACE" == production || "$DEPLOY_NAMESPACE" == testing ]] || { echo 'Only production and testing are supported' >&2; exit 1; }
+[[ "$DEPLOY_NAMESPACE" == production || "$DEPLOY_NAMESPACE" == testing || "$DEPLOY_NAMESPACE" == staging ]] || { echo 'Only production, testing and staging are supported' >&2; exit 1; }
 if [[ "$DEPLOY_NAMESPACE" == testing && ( "${1:-deploy}" != deploy || "${BRANCH:-}" != development || -n "${SELECTED_IMAGE:-}" ) ]]; then
   echo 'Testing only supports fresh development deployments, without registry operations.' >&2
+  exit 1
+fi
+if [[ "$DEPLOY_NAMESPACE" == staging && ( "${1:-deploy}" != deploy || "${BRANCH:-}" != development || -n "${SELECTED_IMAGE:-}" || "$IMAGE_REPOSITORY" != localhost/trackingtrucks-staging ) ]]; then
+  echo 'Staging only supports fresh development deployments, without registry operations.' >&2
   exit 1
 fi
 if [[ "${1:-deploy}" != resolve ]]; then
@@ -216,7 +220,7 @@ const deployment = {
         containers: [{
           name: 'app',
           image: process.env.DEPLOY_IMAGE,
-          imagePullPolicy: process.env.DEPLOY_NAMESPACE === 'testing' ? 'Never' : 'IfNotPresent',
+          imagePullPolicy: process.env.DEPLOY_NAMESPACE !== 'production' ? 'Never' : 'IfNotPresent',
           securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ['ALL']}},
           ports: [{name: 'http', containerPort: 5173}],
           readinessProbe: {httpGet: {path: '/index.html', port: 'http'}, periodSeconds: 5},
@@ -251,7 +255,8 @@ const fs = require('node:fs');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const baked = await response.json();
       if (!/^[0-9a-f]{40,64}$/.test(baked.commit) ||
-          (process.env.DEPLOY_COMMIT && (baked.commit !== process.env.DEPLOY_COMMIT || baked.release !== process.env.RELEASE_ID))) {
+          (process.env.DEPLOY_COMMIT && (baked.commit !== process.env.DEPLOY_COMMIT || baked.release !== process.env.RELEASE_ID)) ||
+          (process.env.DEPLOY_NAMESPACE === 'staging' && baked.branch !== 'development')) {
         throw new Error('Service still serves another build');
       }
       const index = await fetch(base + '/index.html', {signal: AbortSignal.timeout(5000)});

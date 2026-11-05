@@ -1,5 +1,4 @@
-﻿using System;
-using DotNetEnv;
+﻿using DotNetEnv;
 
 namespace Backend
 {
@@ -7,9 +6,7 @@ namespace Backend
     {
         static void Main(string[] args)
         {
-            string apiKey = "";
             DotNetEnv.Env.TraversePath().Load();
-            apiKey = Environment.GetEnvironmentVariable("API_PRIVATE_KEY");
             Database.clearFolder("localRepoCopy");
             Database.pullGitDatabase();
             API.startAPI(args);
