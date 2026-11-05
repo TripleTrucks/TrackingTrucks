@@ -418,6 +418,95 @@ namespace Backend
             });
 
             // ==========================================
+            // SIGN IN ENDPOINT
+            // ==========================================
+
+            app.MapPost("/api/Profiles/signup", (JsonObject request) =>
+            {
+                if (request["username"] is not JsonValue usernameValue ||
+                    !usernameValue.TryGetValue<string>(out var username) ||
+                    string.IsNullOrWhiteSpace(username) ||
+                    username.Length > 50)
+                {
+                    return Results.BadRequest(new { error = "Username is required and must be 50 characters or less." });
+                }
+
+                if (request["displayname"] is not JsonValue displayNameValue ||
+                    !displayNameValue.TryGetValue<string>(out var displayName) ||
+                    string.IsNullOrWhiteSpace(displayName) ||
+                    displayName.Length > 100)
+                {
+                    return Results.BadRequest(new { error = "Display name is required and must be 100 characters or less." });
+                }
+
+                if (request["password"] is not JsonValue passwordValue ||
+                    !passwordValue.TryGetValue<string>(out var password) ||
+                    string.IsNullOrWhiteSpace(password) ||
+                    password.Length < 8)
+                {
+                    return Results.BadRequest(new { error = "Password is required and must be at least 8 characters long." });
+                }
+
+                string phoneNumber = "";
+                if (request["phone-number"] is JsonNode phoneNode)
+                {
+                    if (phoneNode is not JsonValue phoneValue ||
+                        !phoneValue.TryGetValue<string>(out phoneNumber) ||
+                        phoneNumber.Length > 30)
+                    {
+                        return Results.BadRequest(new { error = "Phone number must be a non-empty string and no more than 30 characters." });
+                    }
+                }
+
+                lock (databaseWriteLock)
+                {
+                    var profiles = GetDataFromDirectory(GetCollectionDirectory("Profiles"))
+                        .OfType<JsonObject>()
+                        .ToList();
+
+                    bool usernameExists = profiles.Any(p =>
+                        p["username"] is JsonValue value &&
+                        value.TryGetValue<string>(out var existingUsername) &&
+                        string.Equals(existingUsername, username.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                    if (usernameExists)
+                    {
+                        return Results.Conflict(new { error = "Username already exists." });
+                    }
+
+                    int maxId = profiles
+                        .Select(profile =>
+                            profile["id"] is JsonValue idValue &&
+                            idValue.TryGetValue<int>(out var id)
+                                ? id
+                                : 0)
+                        .DefaultIfEmpty(0)
+                        .Max();
+
+                    if (maxId == int.MaxValue)
+                    {
+                        return Results.Conflict(new { error = "No profile IDs are available." });
+                    }
+
+                    int id = maxId + 1;
+                    var profile = new JsonObject
+                    {
+                        ["id"] = id,
+                        ["username"] = username.Trim(),
+                        ["displayname"] = displayName.Trim(),
+                        ["password"] = password,
+                        ["phone-number"] = phoneNumber,
+                        ["role"] = "user",
+                        ["truckIds"] = new JsonArray()
+                    };
+
+                    Database.writeProfilesDatabase($"{id}.json", profile.ToJsonString());
+                    PushDatabaseChanges($"Create profile {id}");
+
+                    return Results.Created($"/api/Profiles/{id}", profile);
+                }
+            });
+
             // HEALTH CHECK
             // ==========================================
 
