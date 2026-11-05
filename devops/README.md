@@ -688,3 +688,18 @@ The runner namespace is intentionally separate from `testing`; Jenkins deploys t
 ## 14. Nightly staging environment
 
 See [nightly staging setup](jenkins/STAGING.md) for `SYNC_STAGING`, its 23:59 America/New_York schedule and the same one-time Tailscale routing setup used for testing and production.
+
+### Sync local environment secrets
+
+Run `npm run secrets:sync` on the administrator host after updating the ignored
+root `.env`. This stores the full file in `trackingtrucks-env` in staging,
+production and testing. That Secret is not mounted into build or app containers.
+Only `VITE_*` entries are copied to `frontend-env` for Jenkins builds, and only
+`API_PRIVATE_KEY` is copied to `backend-env` for the running backend. This keeps
+Jenkins/Rancher/registry credentials out of application processes.
+
+Refresh Jenkins after changing its job templates. After changing secrets, rebuild
+each environment to embed frontend values and replace its app pod. Runtime secret
+changes alone need a pod restart; they do not alter already compiled frontend assets.
+`VITE_GEOAPIFY_API_KEY` must be present for routing. All `VITE_*` values become
+public browser assets, even when sourced from a Kubernetes Secret.

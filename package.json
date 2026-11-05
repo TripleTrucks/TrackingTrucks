@@ -11,7 +11,8 @@
         "lint": "eslint app vite.config.ts --max-warnings=0",
         "start": "npm run tools:compile --silent && node .cache/scripts/app.js start",
         "setup:backend": "npm run tools:compile --silent && node .cache/scripts/app.js setup",
-        "tools:compile": "tsc -p scripts/tsconfig.json"
+        "tools:compile": "tsc -p scripts/tsconfig.json",
+        "secrets:sync": "npm run tools:compile --silent && node .cache/scripts/sync-env.js"
     },
     "dependencies": {
         "leaflet": "^1.9.4",

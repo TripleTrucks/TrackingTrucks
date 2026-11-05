@@ -36,6 +36,7 @@ spec:
       envFrom:
         - configMapRef: {name: registry-settings}
         - configMapRef: {name: deploy-code-settings}
+        - secretRef: {name: frontend-env}
       resources:
         requests: {cpu: 100m, memory: 256Mi}
         limits: {cpu: "2", memory: 2Gi}

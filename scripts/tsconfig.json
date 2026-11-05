@@ -5,8 +5,13 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "outDir": "../.cache/scripts"
   },
-  "include": ["app.ts"]
+  "include": [
+    "app.ts",
+    "sync-env.ts"
+  ]
 }
