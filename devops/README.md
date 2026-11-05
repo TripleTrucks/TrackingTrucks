@@ -66,7 +66,7 @@ These are the repository defaults or versions observed on the existing server wh
 | Jenkins chart | `5.9.64` | `devops/jenkins/deployJenkins.sh` |
 | Jenkins plugins | Explicit version pins | `devops/jenkins/jenkinsConfig.yaml` |
 | Zot chart / image | `0.1.128` / `v2.1.22` | `artifacts/deploy.sh`, `artifacts/values.yaml` |
-| Node build container | `node:24-bookworm` | Jenkinsfile |
+| Node build container | `node:24.22.2-bookworm` | Jenkinsfile |
 | BuildKit | `moby/buildkit:v0.23.2-rootless` | Jenkinsfile |
 | Application runtime | `mcr.microsoft.com/dotnet/aspnet:8.0-bookworm-slim` | Deployment Dockerfile |
 
@@ -386,6 +386,13 @@ In Jenkins, open **DEPLOY_CODE → Build with Parameters** (or DEPLOY_TESTING fo
 | `BRANCH` | `main`, or the branch to deploy |
 | `REPO_URL` | Your repository SSH URL |
 | `GIT_CREDENTIALS_ID` | `github-ssh`, or the credential ID you created |
+
+The Node/.NET `build` container in all three Jenkins jobs temporarily uses an
+unconfined AppArmor profile. The host's stacked-profile signal denials accompanied
+build-runtime crashes; the isolated build passed with this override. This reduces
+AppArmor protection for compilation only and does not change application pod
+profiles or host-wide settings. Remove this override after fixing the host
+AppArmor/containerd compatibility and verifying a confined build.
 
 The job serializes builds and has a 40-minute timeout. It uses five agent containers: Jenkins inbound agent, Node for compilation/deployment scripts, rootless BuildKit for image creation, K3s for local image import, and Skopeo for publication. The import container runs as root with the host containerd socket mounted, which grants node-level control: restrict this job to trusted maintainers. Fresh builds are deployed on the agent’s node, matching the current single-node K3s setup.
 

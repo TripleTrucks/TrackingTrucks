@@ -31,7 +31,7 @@ function run(command: string, args: string[], cwd = root, env = process.env): Pr
     child.once('exit', (code, signal) => {
       children.delete(child);
       if (code === 0) resolveRun();
-      else reject(new Error(`${command} exited with ${signal ?? code}`));
+      else reject(new Error(`${command} ${args.join(' ')} exited with ${signal ?? code}`));
     });
   });
 }
@@ -81,6 +81,7 @@ async function dotnet(): Promise<string> {
 async function main() {
   const mode = process.argv[2];
   if (!['dev', 'build', 'start', 'setup'].includes(mode)) throw new Error('Expected dev, build, start or setup.');
+  console.log(`App command: ${mode}; Node ${process.version} (${process.platform}/${process.arch})`);
   const dotnetPath = await dotnet();
   const backend = join(root, 'Backend');
   const output = join(root, 'build', 'app');
@@ -93,9 +94,12 @@ async function main() {
       run(process.execPath, [join(root, 'node_modules/vite/bin/vite.js'), ...process.argv.slice(3)]),
     ]);
   } else if (mode === 'build') {
+    console.log('Build: TypeScript check');
     await run(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit']);
+    console.log('Build: Vite frontend bundle');
     await run(process.execPath, [join(root, 'node_modules/vite/bin/vite.js'), 'build']);
     await rm(output, { recursive: true, force: true });
+    console.log('Build: .NET backend publish');
     await run(dotnetPath, ['publish', 'Backend.csproj', '-c', 'Release', '-o', output, '--self-contained', 'false'], backend);
     await cp(join(root, 'dist'), join(output, 'wwwroot'), { recursive: true });
   } else {
