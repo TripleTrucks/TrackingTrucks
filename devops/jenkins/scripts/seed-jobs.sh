@@ -50,14 +50,23 @@ dsl += """pipelineJob('DEPLOY_TESTING') {
   definition { cps { script(""" + quoted_testing + """); sandbox() } }
 }
 """
+staging = configured(pathlib.Path(sys.argv[1]).with_name('syncStaging.Jenkinsfile').read_text())
+quoted_staging = "'" + staging.replace("\\", "\\\\").replace("'", "\\'").replace("\r", "\\r").replace("\n", "\\n") + "'"
+# Seed the timer immediately; it must not depend on an initial manual build.
+dsl += r"""pipelineJob('SYNC_STAGING') {
+  description('Build and deploy the latest development branch to staging without publishing images. Runs at 23:59 America/New_York.')
+  triggers { cron('TZ=America/New_York\n59 23 * * *') }
+  definition { cps { script(""" + quoted_staging + """); sandbox() } }
+}
+"""
 pathlib.Path(sys.argv[2]).write_text(json.dumps({'jobs': [{'script': configured(dsl)}]}))
 PY
 
-# Validate both environments before applying resources.
+# Validate all environments before applying resources.
 SETTINGS="$(python3 - "$ROOT/environments.yaml" <<'CONFIG'
 import re, sys, yaml
 config = yaml.safe_load(open(sys.argv[1]))['environments']
-for name in ('production', 'testing'):
+for name in ('production', 'testing', 'staging'):
     env = config[name]
     host = env.get('hostname', '')
     assert env['namespace'] == name, f'{name} namespace must be {name}'
@@ -70,7 +79,7 @@ while read -r namespace app_host; do
 import sys, yaml
 namespace = sys.argv[2]
 for resource in yaml.safe_load_all(open(sys.argv[1])):
-    if namespace == 'testing' and resource['kind'] == 'PersistentVolumeClaim':
+    if namespace != 'production' and resource['kind'] == 'PersistentVolumeClaim':
         continue
     if resource['kind'] == 'Namespace':
         resource['metadata']['name'] = namespace
@@ -91,4 +100,7 @@ RBAC
     --from-file="nginx.conf=$ROOT/scripts/nginx.conf" \
     --dry-run=client -o yaml | "${kube[@]}" apply -f -
 done <<< "$SETTINGS"
-echo 'DEPLOY_CODE and DEPLOY_TESTING job definitions prepared.'
+# Remove obsolete cross-namespace access from the former testing-image sync.
+"${kube[@]}" -n testing delete rolebinding staging-source-reader --ignore-not-found
+"${kube[@]}" -n testing delete role staging-source-reader --ignore-not-found
+echo 'DEPLOY_CODE, DEPLOY_TESTING and nightly SYNC_STAGING job definitions prepared.'
