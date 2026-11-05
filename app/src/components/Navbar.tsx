@@ -7,6 +7,7 @@ function Navbar() {
 
       <div className="navbar-links">
         <a href="/">Home</a>
+        <a href="/signin">Login</a>
       </div>
     </nav>
   );
