@@ -285,6 +285,7 @@ namespace Backend
         public static void pushGitDatabase(string commitMessage, string username, string token)
         {
             string localPath = "localRepoCopy";
+            string targetBranch = "main";
             using (var repo = new Repository(localPath))
             {
                 // 1. Stage all changes (new, modified, or deleted JSON files)
@@ -396,6 +397,7 @@ namespace Backend
         public static void pullGitDatabase()
         {
             string localPath = "localRepoCopy";
+            string targetBranch = "main";
             var cloneOptions = new CloneOptions
             {
                 BranchName = DatabaseBranch
