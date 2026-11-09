@@ -4,7 +4,11 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 STATE="$ROOT/.local"
 mode="${1:-deploy}"
-case "$mode" in deploy|--serve) ;; *) echo 'Usage: deploy.sh [--serve]' >&2; exit 2 ;; esac
+case "$mode" in
+  --configure) exec python3 "$ROOT/configure-registry.py" ;;
+  deploy|--serve) ;;
+  *) echo 'Usage: deploy.sh [--serve|--configure]' >&2; exit 2 ;;
+esac
 for tool in kubectl helm; do command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 1; }; done
 [[ -s "$STATE/endpoint" ]] || { echo 'First run: python3 artifacts/prepare.py' >&2; exit 1; }
 if [[ -z "${KUBECONFIG:-}" && -r "$HOME/.kube/trackingtrucks-k3s.yaml" ]]; then
@@ -24,6 +28,7 @@ if [[ "$mode" == --serve ]]; then
   sudo tailscale serve --bg --service="svc:$service" --https=443 "https+insecure://127.0.0.1:$port"
   echo "Tailscale route configured for svc:$service on HTTPS 443."
   echo 'Approve this service host in Tailscale if required by your tailnet policy.'
+  echo 'Then run: bash artifacts/deploy.sh --configure'
   exit 0
 fi
 
@@ -53,3 +58,4 @@ printf 'Registry installed: https://%s\nNext: configure K3s trust, then refresh 
 
 echo 'Cluster DNS: artifacts-zot.artifacts.svc.cluster.local:5000'
 echo 'To expose it through Tailscale, run on a K3s node: bash artifacts/deploy.sh --serve'
+echo 'After installation or upgrades, apply the stable Jenkins registry hostname: bash artifacts/deploy.sh --configure'
