@@ -37,6 +37,18 @@ namespace Backend
             var builder = WebApplication.CreateBuilder(args);
             var app = builder.Build();
 
+            app.UseDefaultFiles();
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                OnPrepareResponse = context =>
+                {
+                    context.Context.Response.Headers.CacheControl =
+                        context.Context.Request.Path.StartsWithSegments("/assets")
+                            ? "public, max-age=31536000, immutable"
+                            : "no-cache";
+                }
+            });
+
             // ==========================================
             // TRUCK ENDPOINTS
             // ==========================================
@@ -511,6 +523,9 @@ namespace Backend
             // ==========================================
 
             app.MapGet("/api/health", () => Results.Ok(new { Status = "ok" }));
+            app.MapGet("/healthz", () => Results.Ok(new { Status = "ok" }));
+            app.MapFallback("/api/{**path}", () => Results.NotFound());
+            app.MapFallbackToFile("index.html");
 
             app.Run();
         }

@@ -22,7 +22,7 @@ For PR build/lint checks and automatic testing deployments after `development` u
 | PR closed without merging, or direct push to `main` | No automatic production deployment | None |
 | Daily at 23:59 America/New_York | `SYNC_STAGING` builds the latest `development` branch | Staging; fresh local image, no registry publication |
 
-There are no unit/integration suites or C# lint checks yet. Jenkins deploys the frontend only; the backend is compiled by CI but is not deployed by these jobs. A production merge does not update `development`, so it does not trigger testing.
+There are no unit/integration suites or C# lint checks yet. Jenkins builds and deploys both the frontend and .NET 8 backend. A production merge does not update `development`, so it does not trigger testing.
 
 ## Start here
 
@@ -66,9 +66,9 @@ These are the repository defaults or versions observed on the existing server wh
 | Jenkins chart | `5.9.64` | `devops/jenkins/deployJenkins.sh` |
 | Jenkins plugins | Explicit version pins | `devops/jenkins/jenkinsConfig.yaml` |
 | Zot chart / image | `0.1.128` / `v2.1.22` | `artifacts/deploy.sh`, `artifacts/values.yaml` |
-| Node build container | `node:24-bookworm` | Jenkinsfile |
+| Node build container | `node:24.22.2-bookworm` | Jenkinsfile |
 | BuildKit | `moby/buildkit:v0.23.2-rootless` | Jenkinsfile |
-| Application web server | `nginx:1.28-alpine` | Deployment Dockerfile |
+| Application runtime | `mcr.microsoft.com/dotnet/aspnet:8.0-bookworm-slim` | Deployment Dockerfile |
 
 ### Install basic tools and clone
 
@@ -300,7 +300,7 @@ echo
 - The TLS server certificate lasts one year. Check `openssl x509 -in artifacts/.local/tls.crt -noout -enddate`. To renew, back up `.local/`, move `tls.crt`, `tls.key`, and `tls.csr` out of it, rerun preparation with the same hostname, deploy, and restart the Zot StatefulSet. Keep the CA unchanged so nodes retain trust.
 - Keep the old `trackingtrucks-releases` PVC through the first image deployment, in case it rolls back to the previous workspace-based application.
 
-Application images contain the compiled frontend and web server, not databases, runtime secrets or the .NET backend. Build-time `VITE_*` values are public browser assets.
+Application images contain the compiled frontend, published backend and ASP.NET 8 runtime. Runtime secrets are supplied separately. Build-time `VITE_*` values are public browser assets.
 
 References: [Zot Helm chart](https://github.com/project-zot/helm-charts), [K3s registry trust](https://docs.k3s.io/installation/private-registry).
 
@@ -387,17 +387,36 @@ In Jenkins, open **DEPLOY_CODE → Build with Parameters** (or DEPLOY_TESTING fo
 | `REPO_URL` | Your repository SSH URL |
 | `GIT_CREDENTIALS_ID` | `github-ssh`, or the credential ID you created |
 
+The Node/.NET `build` container in all three Jenkins jobs temporarily uses an
+unconfined AppArmor profile. The host's stacked-profile signal denials accompanied
+build-runtime crashes; the isolated build passed with this override. This reduces
+AppArmor protection for compilation only and does not change application pod
+profiles or host-wide settings. Remove this override after fixing the host
+AppArmor/containerd compatibility and verifying a confined build.
+
 The job serializes builds and has a 40-minute timeout. It uses five agent containers: Jenkins inbound agent, Node for compilation/deployment scripts, rootless BuildKit for image creation, K3s for local image import, and Skopeo for publication. The import container runs as root with the host containerd socket mounted, which grants node-level control: restrict this job to trusted maintainers. Fresh builds are deployed on the agent’s node, matching the current single-node K3s setup.
 
 | Stage | What it does |
 | --- | --- |
 | Prepare release | Creates an isolated workspace and checks out the selected branch; an `IMAGE` deployment skips checkout. |
-| Compile application | Runs `npm ci --include=dev`, TypeScript checking and Vite build; records source metadata. Skipped for a saved image. |
-| Build image | Packages `dist` and metadata into an OCI archive and imports it into the agent node’s K3s runtime without uploading to Zot. Skipped for a saved image. |
+| Compile application | Runs `npm ci --include=dev`, TypeScript checking, Vite build and .NET 8 publish; installs the SDK when missing and records source metadata. Skipped for a saved image. |
+| Build image | Packages `build/app` and metadata into an OCI archive and imports it into the agent node’s K3s runtime without uploading to Zot. Skipped for a saved image. |
 | Deploy and verify | Applies the Deployment/Service using the digest (fresh builds stay on the import node), waits for rollout readiness, and checks the served build metadata and application index. |
 | Publish image | Runs only after deployment verification passes. Uploads the verified archive under a `release-…` tag without rebuilding or changing the digest. Saved-image deployments only add a release tag. |
 
-The job archives `release.json`, including the published tag, in Jenkins and prints the exact image reference for rollback. The runtime is a non-root Nginx container serving port 5173; the `trackingtrucks` Service exposes port 80. It serves compiled production files rather than Vite's development server.
+The job archives `release.json`, including the published tag, in Jenkins and prints the exact image reference for rollback. The runtime is a non-root ASP.NET 8 container serving port 5173; the `trackingtrucks` Service exposes port 80. It serves compiled production files rather than Vite's development server.
+
+The backend clones its existing Git database into a writable `emptyDir` at
+`/app/localRepoCopy` on startup. Committed database updates remain in Git;
+unpushed local changes are ephemeral. Each environment can provide runtime
+variables through a Kubernetes Secret named `backend-env`, including
+`API_PRIVATE_KEY` for the existing write/push endpoints. The Secret is optional
+for read-only use and is never baked into the image. The container runs in
+Production mode, so development role headers remain disabled.
+
+Commit/push these application changes to the branch being deployed, then refresh
+Jenkins with `bash devops/jenkins/deployJenkins.sh` and run the deployment job.
+The shared compile script now requires the matching package scripts on that branch.
 
 Confirm the first deployment:
 
@@ -594,7 +613,7 @@ GitHub **Settings → Actions → Runners** should show the scale set. With `min
 
 The runner uses `http://jenkins.jenkins.svc.cluster.local:8080` by default; this sends the API token over cluster HTTP, matching the existing Jenkins Service. If the cluster threat model requires encryption in transit, configure a reachable trusted HTTPS endpoint in YAML. The runner must resolve/reach Jenkins and have outbound HTTPS to GitHub and GitHub's Actions services. The external browser URL can remain private behind WARP/Tailscale; it is not used for triggering.
 
-The testing hostname in `environments.yaml` must already route to Service `testing/trackingtrucks`, port 80. Configuration alone does not provision DNS/tunnels. Jenkins's internal checks verify the Service; verify your external tunnel route separately. This currently deploys the frontend/Nginx application, not the C# backend.
+The testing hostname in `environments.yaml` must already route to Service `testing/trackingtrucks`, port 80. Configuration alone does not provision DNS/tunnels. Jenkins's internal checks verify the Service; verify your external tunnel route separately. This deploys the frontend and C# backend together.
 
 Rerun the installer after YAML edits or secret rotation. New pods use the new settings; active jobs retain their starting environment. Refresh Jenkins after changing repository or checkout credential settings. The installer does not delete retired Secrets when switching authentication modes.
 
@@ -669,3 +688,18 @@ The runner namespace is intentionally separate from `testing`; Jenkins deploys t
 ## 14. Nightly staging environment
 
 See [nightly staging setup](jenkins/STAGING.md) for `SYNC_STAGING`, its 23:59 America/New_York schedule and the same one-time Tailscale routing setup used for testing and production.
+
+### Sync local environment secrets
+
+Run `npm run secrets:sync` on the administrator host after updating the ignored
+root `.env`. This stores the full file in `trackingtrucks-env` in staging,
+production and testing. That Secret is not mounted into build or app containers.
+Only `VITE_*` entries are copied to `frontend-env` for Jenkins builds, and only
+`API_PRIVATE_KEY` is copied to `backend-env` for the running backend. This keeps
+Jenkins/Rancher/registry credentials out of application processes.
+
+Refresh Jenkins after changing its job templates. After changing secrets, rebuild
+each environment to embed frontend values and replace its app pod. Runtime secret
+changes alone need a pod restart; they do not alter already compiled frontend assets.
+`VITE_GEOAPIFY_API_KEY` must be present for routing. All `VITE_*` values become
+public browser assets, even when sourced from a Kubernetes Secret.

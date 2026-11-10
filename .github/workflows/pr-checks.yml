@@ -22,9 +22,12 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
           cache: npm
       - run: npm ci --include=dev
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
       - name: Lint
         run: npm run lint
       - name: Type check and compile

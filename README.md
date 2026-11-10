@@ -5,6 +5,32 @@ installation commands, optional Docker setup, and running the website.
 
 For server deployment, Jenkins, registry and GitHub Actions setup, see the [DevOps guide](devops/README.md).
 
+## Run the full app
+
+```bash
+npm ci
+npm run dev
+```
+
+`dev` starts Vite and the backend together; Ctrl+C stops both. The npm commands
+find .NET 8 or install its SDK and ASP.NET runtime into `~/.dotnet8` using
+Microsoft's installer. No system package changes are needed. Installation needs
+internet access and the OS native dependencies for .NET (included in Jenkins's
+Debian build image).
+
+For a compiled app:
+
+```bash
+npm run build
+npm start
+```
+
+`build` checks TypeScript, bundles the frontend and publishes the backend into
+`build/app`, then exits. `start` serves both at `http://127.0.0.1:5173` with
+ASP.NET Core. Set `ASPNETCORE_URLS` to change the bind address. `start` defaults
+to Production; the existing development-only role headers are enabled only by
+`npm run dev` (or an explicit `ASPNETCORE_ENVIRONMENT=Development`).
+
 ## Geocode schedule locations
 
 Schedule addresses can be geocoded once and saved as latitude/longitude values
@@ -31,7 +57,7 @@ shows the latest recorded revision time.
 The website loads profiles, trucks, and schedules through the .NET API; it does
 not load database JSON files directly. The backend clones the `main` branch of
 `ZenMastering/TrackingTrucks` at startup and serves records from that clone.
-Start the API while developing with `dotnet run --project Backend`. Vite
+Run `npm run dev` to start both Vite and the .NET backend. Vite
 forwards `/api` requests to the backend's HTTP port (`62926`). Set
 `API_PROXY_TARGET` in `.env` if the API is running at a different address.
 Schedule updates are saved to the backend's working clone and pushed to `main`,
