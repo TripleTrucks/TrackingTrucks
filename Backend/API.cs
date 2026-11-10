@@ -6,6 +6,9 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Linq;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using System.Security.Claims;
 
 namespace Backend
 {
@@ -35,7 +38,96 @@ namespace Backend
         public static void startAPI(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+
+            builder.Services
+                .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+                .AddCookie(options =>
+                {
+                    options.Cookie.Name = "Dababy"; // The cookie is named Dababy
+                    options.Cookie.HttpOnly = true; // The cookie is accessible only through HTTP(S), not JavaScript
+                    options.Cookie.SameSite = SameSiteMode.Lax; // The cookie is sent with same-site requests and top-level navigation
+                    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+                        ? CookieSecurePolicy.SameAsRequest
+                        : CookieSecurePolicy.Always; // The cookie is sent only over HTTPS in production
+                    options.ExpireTimeSpan = TimeSpan.FromHours(8); // The cookie expires after 8 hours
+                    options.Events.OnRedirectToLogin = context =>
+                    {
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        return Task.CompletedTask;
+                    };
+                });
+
+            builder.Services.AddAuthorization();
+
             var app = builder.Build();
+
+            app.UseAuthentication();
+            app.UseAuthorization();
+
+            // ==========================================
+            // LOGIN ENDPOINT
+            // ==========================================
+
+            app.MapPost("/api/auth/login", async (HttpContext context, JsonObject request) =>
+            {
+                if (request["username"] is not JsonValue usernameValue ||
+                    !usernameValue.TryGetValue<string>(out var username) ||
+                    string.IsNullOrWhiteSpace(username))
+                {
+                    return Results.BadRequest(new { error = "Username is required." });
+                }
+
+                if (request["password"] is not JsonValue passwordValue ||
+                    !passwordValue.TryGetValue<string>(out var password) ||
+                    string.IsNullOrWhiteSpace(password))
+                {
+                    return Results.BadRequest(new { error = "Password is required." });
+                }
+
+                var profile = GetDataFromDirectory(GetCollectionDirectory("Profiles"))
+                    .OfType<JsonObject>()
+                    .FirstOrDefault(record =>
+                        record["username"] is JsonValue profileUsernameValue &&
+                        profileUsernameValue.TryGetValue<string>(out var profileUsername) &&
+                        string.Equals(
+                            profileUsername,
+                            username.Trim(),
+                            StringComparison.OrdinalIgnoreCase));
+
+                if (profile is null ||
+                    profile["password"] is not JsonValue profilePasswordValue ||
+                    !profilePasswordValue.TryGetValue<string>(out var profilePassword) ||
+                    !string.Equals(profilePassword, password, StringComparison.Ordinal))
+                {
+                    return Results.Unauthorized();
+                }
+
+                if (profile["id"] is not JsonValue idValue ||
+                !idValue.TryGetValue<int>(out var profileId))
+                {
+                    return Results.Problem("The profile is missing a valid ID");
+                }
+
+                var claims = new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, profileId.ToString()),
+                    new Claim(ClaimTypes.Name, username.Trim())
+                };
+
+                var identity = new ClaimsIdentity(
+                    claims,
+                    CookieAuthenticationDefaults.AuthenticationScheme);
+
+                await context.SignInAsync(
+                    CookieAuthenticationDefaults.AuthenticationScheme,
+                    new ClaimsPrincipal(identity));
+
+                return Results.Ok(new
+                {
+                    id = profileId,
+                    username = username.Trim(),
+                });
+            });
 
             // ==========================================
             // TRUCK ENDPOINTS
