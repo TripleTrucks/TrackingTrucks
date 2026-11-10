@@ -17,7 +17,6 @@ function Navbar() {
         >
           Manage schedules
         </a>
-        <a href="/">Home</a>
         <a href="/signin">Login</a>
       </div>
     </nav>

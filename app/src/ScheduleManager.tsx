@@ -9,10 +9,48 @@ import {
 import type { Truck } from "./dataTypes";
 import {
   type DayKey,
+  type DateExceptionRecurrence,
   type Schedule,
+  type ScheduleDateException,
   type TimeRange,
 } from "./truckStatus";
 import "./ScheduleManager.css";
+
+function isValidDateValue(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
+function getExceptionRecurrenceLabel(
+  recurrence: DateExceptionRecurrence
+): string {
+  switch (recurrence) {
+    case "monthly":
+      return "Monthly";
+    case "yearly":
+      return "Yearly";
+    default:
+      return "One time";
+  }
+}
+
+function isDateExceptionRecurrence(
+  value: string
+): value is DateExceptionRecurrence {
+  return value === "once" || value === "monthly" || value === "yearly";
+}
 
 const days: { label: string; key: DayKey }[] = [
   { label: "Monday", key: "monday" },
@@ -28,6 +66,15 @@ function ScheduleManager() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Schedule>>({});
+  const [newExceptionDates, setNewExceptionDates] = useState<
+    Record<number, string>
+  >({});
+  const [newExceptionTitles, setNewExceptionTitles] = useState<
+    Record<number, string>
+  >({});
+  const [newExceptionRecurrences, setNewExceptionRecurrences] = useState<
+    Record<number, DateExceptionRecurrence>
+  >({});
   const [expandedScheduleIds, setExpandedScheduleIds] = useState<Set<number>>(
     new Set()
   );
@@ -115,6 +162,56 @@ function ScheduleManager() {
     setSuccessMessage(null);
   }
 
+  function updateDateExceptions(
+    scheduleId: number,
+    exceptions: ScheduleDateException[]
+  ) {
+    setDrafts((current) => ({
+      ...current,
+      [scheduleId]: {
+        ...current[scheduleId],
+        dateExceptions: exceptions,
+      },
+    }));
+    setErrorMessage(null);
+    setSuccessMessage(null);
+  }
+
+  function addDateException(scheduleId: number) {
+    const date = newExceptionDates[scheduleId] ?? "";
+    const title = (newExceptionTitles[scheduleId] ?? "").trim();
+    if (!isValidDateValue(date)) {
+      setErrorMessage("Choose a valid date for the exception.");
+      return;
+    }
+    if (!title) {
+      setErrorMessage("Enter a title for the exception.");
+      return;
+    }
+
+    const schedule = drafts[scheduleId];
+    if (!schedule) {
+      return;
+    }
+
+    const recurrence = newExceptionRecurrences[scheduleId] ?? "once";
+    const exceptions = schedule.dateExceptions ?? [];
+    if (
+      exceptions.some(
+        (exception) =>
+          exception.date === date && exception.recurrence === recurrence
+      )
+    ) {
+      setErrorMessage("An exception with this date and repetition already exists.");
+      return;
+    }
+
+    updateDateExceptions(scheduleId, [
+      ...exceptions,
+      { date, title, recurrence, ranges: [] },
+    ]);
+  }
+
   async function saveSchedule(
     event: FormEvent<HTMLFormElement>,
     scheduleId: number
@@ -133,8 +230,31 @@ function ScheduleManager() {
           range.startTime === range.endTime
       )
     );
-    if (hasInvalidRange) {
-      setErrorMessage("Each time range needs different start and end times.");
+    const exceptions = draft.dateExceptions ?? [];
+    const exceptionKeys = exceptions.map(
+      (exception) => `${exception.date}:${exception.recurrence}`
+    );
+    const hasInvalidException = exceptions.some(
+      (exception) =>
+        !isValidDateValue(exception.date) ||
+        !["once", "monthly", "yearly"].includes(exception.recurrence) ||
+        exception.ranges.some(
+          (range) =>
+            !range.startTime ||
+            !range.endTime ||
+            range.startTime === range.endTime
+        )
+    );
+    if (hasInvalidRange || hasInvalidException) {
+      setErrorMessage(
+        hasInvalidRange
+          ? "Each time range needs different start and end times."
+          : "Each date exception needs a valid date and different start and end times."
+      );
+      return;
+    }
+    if (new Set(exceptionKeys).size !== exceptionKeys.length) {
+      setErrorMessage("Each date and repetition can only have one exception.");
       return;
     }
 
@@ -425,6 +545,347 @@ function ScheduleManager() {
                     })}
                   </div>
 
+                  <section className="schedule-exceptions">
+                    <div className="schedule-exceptions-heading">
+                      <div>
+                        <h2>Specific date exceptions</h2>
+                        <p>
+                          Override the weekly hours for one date, or repeat
+                          that exception monthly or yearly.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="schedule-exception-add">
+                      <label>
+                        What is this exception for?
+                        <input
+                          type="text"
+                          required
+                          maxLength={100}
+                          placeholder="e.g. Thanksgiving"
+                          disabled={isSaving}
+                          value={newExceptionTitles[schedule.id] ?? ""}
+                          onChange={(event) =>
+                            setNewExceptionTitles((current) => ({
+                              ...current,
+                              [schedule.id]: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Date
+                        <input
+                          type="date"
+                          disabled={isSaving}
+                          value={newExceptionDates[schedule.id] ?? ""}
+                          onChange={(event) =>
+                            setNewExceptionDates((current) => ({
+                              ...current,
+                              [schedule.id]: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Repeat
+                        <select
+                          disabled={isSaving}
+                          value={newExceptionRecurrences[schedule.id] ?? "once"}
+                          onChange={(event) => {
+                            const recurrence = event.target.value;
+                            if (isDateExceptionRecurrence(recurrence)) {
+                              setNewExceptionRecurrences((current) => ({
+                                ...current,
+                                [schedule.id]: recurrence,
+                              }));
+                            }
+                          }}
+                        >
+                          <option value="once">One time</option>
+                          <option value="monthly">Monthly</option>
+                          <option value="yearly">Yearly</option>
+                        </select>
+                      </label>
+                      <button
+                        className="schedule-text-button"
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => addDateException(schedule.id)}
+                      >
+                        Add exception
+                      </button>
+                    </div>
+
+                    {(draft.dateExceptions ?? []).length === 0 ? (
+                      <p className="schedule-exceptions-empty">
+                        No date exceptions. Add one for a holiday or a
+                        one-off closure.
+                      </p>
+                    ) : (
+                      <div className="schedule-exception-list">
+                        {(draft.dateExceptions ?? []).map(
+                          (exception, exceptionIndex) => (
+                            <section
+                              className="schedule-exception"
+                              key={`${exception.date}-${exception.recurrence}-${exceptionIndex}`}
+                            >
+                              <div className="schedule-exception-heading">
+                                <label>
+                                  Exception title
+                                  <input
+                                    type="text"
+                                    maxLength={100}
+                                    placeholder="e.g. Thanksgiving"
+                                    disabled={isSaving}
+                                    value={exception.title ?? ""}
+                                    onChange={(event) =>
+                                      updateDateExceptions(
+                                        schedule.id,
+                                        (draft.dateExceptions ?? []).map(
+                                          (current, index) =>
+                                            index === exceptionIndex
+                                              ? {
+                                                  ...current,
+                                                  title: event.target.value,
+                                                }
+                                              : current
+                                        )
+                                      )
+                                    }
+                                  />
+                                </label>
+                                <label>
+                                  Date
+                                  <input
+                                    type="date"
+                                    required
+                                    disabled={isSaving}
+                                    value={exception.date}
+                                    onChange={(event) =>
+                                      updateDateExceptions(
+                                        schedule.id,
+                                        (draft.dateExceptions ?? []).map(
+                                          (current, index) =>
+                                            index === exceptionIndex
+                                              ? {
+                                                  ...current,
+                                                  date: event.target.value,
+                                                }
+                                              : current
+                                        )
+                                      )
+                                    }
+                                  />
+                                </label>
+                                <label>
+                                  Repeat
+                                  <select
+                                    disabled={isSaving}
+                                    value={exception.recurrence}
+                                    onChange={(event) =>
+                                      updateDateExceptions(
+                                        schedule.id,
+                                        (draft.dateExceptions ?? []).map(
+                                          (current, index) =>
+                                            index === exceptionIndex
+                                              ? {
+                                                  ...current,
+                                                      recurrence:
+                                                        isDateExceptionRecurrence(
+                                                          event.target.value
+                                                        )
+                                                          ? event.target.value
+                                                          : current.recurrence,
+                                                    }
+                                              : current
+                                        )
+                                      )
+                                    }
+                                  >
+                                    <option value="once">One time</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="yearly">Yearly</option>
+                                  </select>
+                                </label>
+                                <button
+                                  className="schedule-remove-button"
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={() =>
+                                    updateDateExceptions(
+                                      schedule.id,
+                                      (draft.dateExceptions ?? []).filter(
+                                        (_, index) => index !== exceptionIndex
+                                      )
+                                    )
+                                  }
+                                >
+                                  Remove exception
+                                </button>
+                              </div>
+                              <div className="schedule-day-heading">
+                                <p className="schedule-exception-label">
+                                  {getExceptionRecurrenceLabel(
+                                    exception.recurrence
+                                  )}{" "}
+                                  hours
+                                </p>
+                                <button
+                                  className="schedule-text-button"
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={() =>
+                                    updateDateExceptions(
+                                      schedule.id,
+                                      (draft.dateExceptions ?? []).map(
+                                        (current, index) =>
+                                          index === exceptionIndex
+                                            ? {
+                                                ...current,
+                                                ranges: [
+                                                  ...current.ranges,
+                                                  {
+                                                    startTime: "09:00",
+                                                    endTime: "17:00",
+                                                  },
+                                                ],
+                                              }
+                                            : current
+                                      )
+                                    )
+                                  }
+                                >
+                                  Add hours
+                                </button>
+                              </div>
+                              {exception.ranges.length === 0 ? (
+                                <p className="schedule-closed">
+                                  Closed on this date
+                                </p>
+                              ) : (
+                                exception.ranges.map((range, rangeIndex) => (
+                                  <div
+                                    className="schedule-time-range"
+                                    key={`${exceptionIndex}-${rangeIndex}`}
+                                  >
+                                    <label>
+                                      <span className="visually-hidden">
+                                        Exception {exceptionIndex + 1} range{" "}
+                                        {rangeIndex + 1} start time
+                                      </span>
+                                      <input
+                                        type="time"
+                                        required
+                                        disabled={isSaving}
+                                        value={range.startTime}
+                                        onChange={(event) =>
+                                          updateDateExceptions(
+                                            schedule.id,
+                                            (draft.dateExceptions ?? []).map(
+                                              (current, index) =>
+                                                index === exceptionIndex
+                                                  ? {
+                                                      ...current,
+                                                      ranges: current.ranges.map(
+                                                        (
+                                                          currentRange,
+                                                          currentRangeIndex
+                                                        ) =>
+                                                          currentRangeIndex ===
+                                                          rangeIndex
+                                                            ? {
+                                                                ...currentRange,
+                                                                startTime:
+                                                                  event.target
+                                                                    .value,
+                                                              }
+                                                            : currentRange
+                                                      ),
+                                                    }
+                                                  : current
+                                            )
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <span aria-hidden="true">to</span>
+                                    <label>
+                                      <span className="visually-hidden">
+                                        Exception {exceptionIndex + 1} range{" "}
+                                        {rangeIndex + 1} end time
+                                      </span>
+                                      <input
+                                        type="time"
+                                        required
+                                        disabled={isSaving}
+                                        value={range.endTime}
+                                        onChange={(event) =>
+                                          updateDateExceptions(
+                                            schedule.id,
+                                            (draft.dateExceptions ?? []).map(
+                                              (current, index) =>
+                                                index === exceptionIndex
+                                                  ? {
+                                                      ...current,
+                                                      ranges: current.ranges.map(
+                                                        (
+                                                          currentRange,
+                                                          currentRangeIndex
+                                                        ) =>
+                                                          currentRangeIndex ===
+                                                          rangeIndex
+                                                            ? {
+                                                                ...currentRange,
+                                                                endTime:
+                                                                  event.target
+                                                                    .value,
+                                                              }
+                                                            : currentRange
+                                                      ),
+                                                    }
+                                                  : current
+                                            )
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <button
+                                      className="schedule-remove-button"
+                                      type="button"
+                                      disabled={isSaving}
+                                      onClick={() =>
+                                        updateDateExceptions(
+                                          schedule.id,
+                                          (draft.dateExceptions ?? []).map(
+                                            (current, index) =>
+                                              index === exceptionIndex
+                                                ? {
+                                                    ...current,
+                                                    ranges:
+                                                      current.ranges.filter(
+                                                        (_, currentRangeIndex) =>
+                                                          currentRangeIndex !==
+                                                          rangeIndex
+                                                      ),
+                                                  }
+                                                : current
+                                          )
+                                        )
+                                      }
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))
+                              )}
+                            </section>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </section>
+
                   <div className="schedule-save-row">
                     <p>
                       Last revised:{" "}
@@ -473,6 +934,34 @@ function ScheduleManager() {
                                 </p>
                               ))}
                             </div>
+                            {(revision.schedule.dateExceptions ?? []).length >
+                              0 && (
+                              <div className="schedule-history-exceptions">
+                                <strong>Date exceptions</strong>
+                                {(revision.schedule.dateExceptions ?? []).map(
+                                  (exception, exceptionIndex) => (
+                                    <p
+                                      key={`${exception.date}-${exceptionIndex}`}
+                                    >
+                                      {exception.title
+                                        ? `${exception.title} — `
+                                        : ""}
+                                      {exception.date} (
+                                      {getExceptionRecurrenceLabel(
+                                        exception.recurrence
+                                      )}
+                                      ):{" "}
+                                      {exception.ranges
+                                        .map(
+                                          (range) =>
+                                            `${range.startTime}–${range.endTime}`
+                                        )
+                                        .join(", ") || "Closed"}
+                                    </p>
+                                  )
+                                )}
+                              </div>
+                            )}
                           </details>
                         </li>
                       ))}
