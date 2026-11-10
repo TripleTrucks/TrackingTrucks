@@ -9,7 +9,7 @@ for argument in "$@"; do
     --install-docker) install_docker=true ;;
     -h|--help)
       echo 'Usage: bash setup/setup-environment.sh [--install-docker]'
-      echo 'Installs frontend dependencies. --install-docker installs Docker Engine on Ubuntu.'
+      echo 'Installs frontend dependencies and .NET 8. --install-docker installs Docker Engine on Ubuntu.'
       exit 0 ;;
     *) echo "Unknown option: $argument" >&2; exit 2 ;;
   esac
@@ -135,6 +135,7 @@ if [[ "$install_docker" == true ]]; then
   fi
 fi
 
+npm run setup:backend
 npm ls --depth=0
 printf '\nDependencies installed. Commit package.json and package-lock.json.\n'
 echo 'Other developers should install the recorded Node version, then run npm ci.'

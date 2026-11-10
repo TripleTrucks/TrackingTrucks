@@ -1,0 +1,9 @@
+{
+  "id": 1,
+  "username": "sample_trucker",
+  "password": "ExamplePassword123!",
+  "displayname": "Company Name",
+  "phone-number": "(000) 000-0000",
+  "role": "owner",
+  "truckIds": [1]
+}

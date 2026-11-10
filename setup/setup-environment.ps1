@@ -91,6 +91,7 @@ if ($InstallDocker) {
     )
 }
 
+Invoke-Checked npm.cmd @("run", "setup:backend")
 Invoke-Checked npm.cmd @("ls", "--depth=0")
 Write-Host "`nDependencies installed. Commit package.json and package-lock.json."
 Write-Host "Other developers should install the recorded Node version, then run npm ci."
