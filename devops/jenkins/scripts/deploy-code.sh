@@ -4,7 +4,15 @@ set -euo pipefail
 : "${DEPLOY_IMAGE:?}"
 : "${RELEASE_ID:?}"
 : "${IMAGE_REPOSITORY:?}"
-[[ "$DEPLOY_NAMESPACE" == production ]] || { echo 'Only production is supported' >&2; exit 1; }
+[[ "$DEPLOY_NAMESPACE" == production || "$DEPLOY_NAMESPACE" == testing || "$DEPLOY_NAMESPACE" == staging ]] || { echo 'Only production, testing and staging are supported' >&2; exit 1; }
+if [[ "$DEPLOY_NAMESPACE" == testing && ( "${1:-deploy}" != deploy || "${BRANCH:-}" != development || -n "${SELECTED_IMAGE:-}" ) ]]; then
+  echo 'Testing only supports fresh development deployments, without registry operations.' >&2
+  exit 1
+fi
+if [[ "$DEPLOY_NAMESPACE" == staging && ( "${1:-deploy}" != deploy || "${BRANCH:-}" != development || -n "${SELECTED_IMAGE:-}" || "$IMAGE_REPOSITORY" != localhost/trackingtrucks-staging ) ]]; then
+  echo 'Staging only supports fresh development deployments, without registry operations.' >&2
+  exit 1
+fi
 if [[ "${1:-deploy}" != resolve ]]; then
 [[ "$DEPLOY_IMAGE" == "$IMAGE_REPOSITORY"@sha256:* && "${DEPLOY_IMAGE##*@}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
   echo 'Deployment requires a digest in the configured image repository' >&2; exit 1;
@@ -169,7 +177,7 @@ cleanup() {
     echo 'Release failed; restoring the previous Deployment.' >&2
     if [[ -s "$bin_dir/previous.json" ]]; then
       if ! kube apply -f "$bin_dir/previous.json" || ! kube rollout status deployment/trackingtrucks --timeout=5m; then
-        echo 'AUTOMATIC ROLLBACK FAILED: inspect production/trackingtrucks immediately.' >&2
+        echo "AUTOMATIC ROLLBACK FAILED: inspect $DEPLOY_NAMESPACE/trackingtrucks immediately." >&2
       fi
     else
       kube scale deployment trackingtrucks --replicas=0 || true
@@ -207,20 +215,33 @@ const deployment = {
         // Fresh builds exist only on the agent's node until publication succeeds.
         ...(process.env.SELECTED_IMAGE ? {} : {nodeName: process.env.BUILD_NODE}),
         automountServiceAccountToken: false,
-        imagePullSecrets: [{name: 'registry-reader'}],
+        ...(process.env.DEPLOY_NAMESPACE === 'production' ? {imagePullSecrets: [{name: 'registry-reader'}]} : {}),
         securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000},
+        // fsGroup makes the volume writable but does not change its root owner.
+        // LibGit2 requires the repository directory itself to belong to the app user.
+        initContainers: [{
+          name: 'prepare-backend-repo',
+          image: process.env.DEPLOY_IMAGE,
+          imagePullPolicy: process.env.DEPLOY_NAMESPACE !== 'production' ? 'Never' : 'IfNotPresent',
+          command: ['/bin/sh', '-ec', 'mkdir -p /repo/checkout'],
+          securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ['ALL']}},
+          resources: {requests: {cpu: '10m', memory: '16Mi'}, limits: {cpu: '100m', memory: '64Mi'}},
+          volumeMounts: [{name: 'backend-repo', mountPath: '/repo'}]
+        }],
         containers: [{
           name: 'app',
           image: process.env.DEPLOY_IMAGE,
-          imagePullPolicy: 'IfNotPresent',
+          imagePullPolicy: process.env.DEPLOY_NAMESPACE !== 'production' ? 'Never' : 'IfNotPresent',
           securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ['ALL']}},
           ports: [{name: 'http', containerPort: 5173}],
-          readinessProbe: {httpGet: {path: '/index.html', port: 'http'}, periodSeconds: 5},
+          envFrom: [{secretRef: {name: 'backend-env', optional: true}}],
+          startupProbe: {httpGet: {path: '/healthz', port: 'http'}, periodSeconds: 5, failureThreshold: 60},
+          readinessProbe: {httpGet: {path: '/api/health', port: 'http'}, periodSeconds: 5},
           livenessProbe: {httpGet: {path: '/healthz', port: 'http'}, periodSeconds: 10},
-          resources: {requests: {cpu: '100m', memory: '64Mi'}, limits: {cpu: '1', memory: '256Mi'}},
-          volumeMounts: [{name: 'tmp', mountPath: '/tmp'}]
+          resources: {requests: {cpu: '100m', memory: '256Mi'}, limits: {cpu: '1', memory: '1Gi'}},
+          volumeMounts: [{name: 'tmp', mountPath: '/tmp'}, {name: 'backend-repo', mountPath: '/app/localRepoCopy', subPath: 'checkout'}]
         }],
-        volumes: [{name: 'tmp', emptyDir: {}}]
+        volumes: [{name: 'tmp', emptyDir: {}}, {name: 'backend-repo', emptyDir: {}}]
       }
     }
   }
@@ -247,11 +268,16 @@ const fs = require('node:fs');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const baked = await response.json();
       if (!/^[0-9a-f]{40,64}$/.test(baked.commit) ||
-          (process.env.DEPLOY_COMMIT && (baked.commit !== process.env.DEPLOY_COMMIT || baked.release !== process.env.RELEASE_ID))) {
+          (process.env.DEPLOY_COMMIT && (baked.commit !== process.env.DEPLOY_COMMIT || baked.release !== process.env.RELEASE_ID)) ||
+          (process.env.DEPLOY_NAMESPACE === 'staging' && baked.branch !== 'development')) {
         throw new Error('Service still serves another build');
       }
       const index = await fetch(base + '/index.html', {signal: AbortSignal.timeout(5000)});
       if (!index.ok || !(await index.text()).includes('<html')) throw new Error('Invalid application index');
+      if (!process.env.SELECTED_IMAGE) {
+        const health = await fetch(base + '/api/health', {signal: AbortSignal.timeout(5000)});
+        if (!health.ok || (await health.json()).status !== 'ok') throw new Error('Backend is not healthy');
+      }
       const release = {image: process.env.DEPLOY_IMAGE, commit: baked.commit, branch: baked.branch, sourceRelease: baked.release};
       Object.assign(release, {deployment: process.env.RELEASE_ID, buildUrl: process.env.BUILD_URL,
         deployedAt: new Date().toISOString(), status: 'verified'});

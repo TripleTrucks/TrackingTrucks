@@ -1,30 +1,5 @@
-# devops/rancher/rancherConfig.yaml
-
-# Deployment and access settings, read by deployRancher.sh.
-deployment:
-  instanceName: cluster1
-  chartVersion: "2.15.1"
-  kubernetesVersion: "1.36.4"
-  context: default
-  timeout: 15m
-
-  # Rancher requires this release name and namespace.
-  release: rancher
-  namespace: cattle-system
-
-  access:
-    scheme: https
-    port: 443
-
-    tailscale:
-      service: "svc:cluster1"
-      requiredMachineTag: "tag:server"
-      backendAddress: "192.168.68.55"
-      backendPort: 443
-
+# Rancher Helm values. Deployment settings and hostname: ../orchestrator.yaml
 # Rancher Helm settings.
-# This is the only hostname setting; the script derives the URL from it.
-hostname: cluster1.tail7af369.ts.net
 replicas: 1
 
 ingress:

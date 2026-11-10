@@ -2,6 +2,28 @@
   "id": 1,
   "truckname": "Sample Truck",
   "tags": ["Mexican"],
+    "social-media": [
+    {
+      "platform": "Facebook",
+      "url": "https://www.facebook.com/sampletruck"
+    },
+    {
+      "platform": "Instagram",
+      "url": "https://www.instagram.com/sampletruck"
+    },
+    {
+      "platform": "TikTok",
+      "url": "https://www.tiktok.com/@sampletruck"
+    },
+    {
+      "platform": "X",
+      "url": "https://www.x.com/sampletruck"
+    },
+    {
+      "platform": "YouTube",
+      "url": "https://www.youtube.com/@sampletruck"
+    }
+  ],
   "profileIds": [1],
   "scheduleIds": [1]
 }

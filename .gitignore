@@ -244,3 +244,9 @@ release/
 /image.tar
 Backend/obj/
 Backend/bin/
+
+# Runtime repository clones created by the backend, not source submodules.
+localRepoCopy/
+
+# Local ARC/GitHub App credential files
+/devops/rancher/actions-runner/.local/

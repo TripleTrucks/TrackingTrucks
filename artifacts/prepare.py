@@ -88,4 +88,4 @@ reader = json.loads((state / 'reader.dockerconfig.json').read_text())['auths'][e
 (state / 'helm-private.json').write_text(json.dumps({'authHeader': reader}))
 (state / 'buildkitd.toml').write_text(f'[registry."{endpoint}"]\n  http = false\n  insecure = false\n  ca = ["/registry-ca/ca.crt"]\n')
 print(f'Prepared {endpoint}. Private files are in artifacts/.local/ (gitignored).')
-print('Next: bash artifacts/deploy.sh, then configure node trust as documented in artifacts/README.md.')
+print('Next: bash artifacts/deploy.sh, then configure node trust as documented in devops/README.md.')

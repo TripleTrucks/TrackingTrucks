@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run: source /home/chris/TrackingTrucks/devops/setup.sh
-# Then: bash /home/chris/TrackingTrucks/devops/rancher/deployRancher.sh
+# Run: source devops/setup.sh
+# Then: bash devops/rancher/deployRancher.sh
 # Existing K3s, Traefik and cert-manager are required. Does not reinstall them.
 set -Eeuo pipefail
 umask 077
@@ -10,30 +10,20 @@ case "$MODE" in
   -h|--help)
     echo 'Usage: bash devops/rancher/deployRancher.sh [deploy|render]'
     echo 'Defaults: Rancher 2.15.1, one replica, Traefik, HTTPS 443, Rancher-generated TLS.'
-    echo 'Settings: devops/setup.sh and devops/rancher/rancherConfig.yaml.'
-    echo 'Overrides: RANCHER_HOSTNAME, RANCHER_CHART_VERSION, KUBE_CONTEXT, DEPLOY_TIMEOUT.'
+    echo 'Settings: devops/orchestrator.yaml and devops/rancher/rancherConfig.yaml.'
+    echo 'Overrides: RANCHER_CHART_VERSION, KUBE_CONTEXT, DEPLOY_TIMEOUT. Hostname comes only from orchestrator.yaml.'
     exit 0 ;;
   deploy|render) ;;
   *) echo "Unknown mode: $MODE" >&2; exit 2 ;;
 esac
 [[ $# -le 1 ]] || { echo 'Too many arguments.' >&2; exit 2; }
-CHART_VERSION="${RANCHER_CHART_VERSION:-${CHART_VERSION:-2.15.1}}"
-TIMEOUT="${DEPLOY_TIMEOUT:-${TIMEOUT:-15m}}"
-RANCHER_INSTANCE_NAME="${RANCHER_INSTANCE_NAME:-cluster1}"
+source "$ROOT/../config.sh"
+CHART_VERSION="$RANCHER_CHART_VERSION"
+TIMEOUT="$DEPLOY_TIMEOUT"
 [[ "$RANCHER_INSTANCE_NAME" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || {
   echo 'RANCHER_INSTANCE_NAME must contain lowercase letters, digits or hyphens.' >&2; exit 2;
 }
-hostname="${RANCHER_HOSTNAME:-}"
-if [[ -z "$hostname" || "$hostname" == rancher.example.com ]]; then
-  hostname="$(awk '$1 == "hostname:" {print $2; exit}' "$ROOT/rancherConfig.yaml")"
-fi
-if [[ -z "$hostname" || "$hostname" == rancher.example.com ]]; then
-  if [[ -t 0 ]]; then
-    read -r -p 'Rancher DNS hostname (without https:// or port): ' hostname
-  else
-    echo 'Set RANCHER_HOSTNAME or hostname in rancherConfig.yaml.' >&2; exit 2
-  fi
-fi
+hostname="$RANCHER_HOSTNAME"
 [[ "$hostname" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ ]] || {
   echo 'The hostname must be a DNS name, without a scheme, path or port.' >&2; exit 2;
 }
@@ -70,7 +60,7 @@ fi
 helm repo add rancher-stable https://releases.rancher.com/server-charts/stable --force-update >&2
 helm repo update rancher-stable >&2
 if [[ "$MODE" == render ]]; then
-  helm template rancher rancher-stable/rancher --version "$CHART_VERSION" --kube-version "${KUBE_VERSION:-1.36.4}" \
+  helm template rancher rancher-stable/rancher --version "$CHART_VERSION" --kube-version "${KUBE_VERSION}" \
     --namespace cattle-system "${values[@]}"
   exit 0
 fi

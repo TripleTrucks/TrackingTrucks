@@ -1,0 +1,70 @@
+.sign-in-page {
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  gap: 20px;
+  padding: 24px;
+  background: #f7f7f7;
+}
+
+.sign-in-page h1 {
+  margin: 0;
+  color: #c1121f;
+  text-align: center;
+}
+
+.sign-in-page form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(100%, 380px);
+  padding: 28px;
+  border: 1px solid #dddddd;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.sign-in-page label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.sign-in-page input {
+  padding: 10px 12px;
+  border: 1px solid #bbbbbb;
+  border-radius: 5px;
+  font: inherit;
+}
+
+.sign-in-page input:focus-visible {
+  outline: 3px solid rgba(193, 18, 31, 0.2);
+  border-color: #c1121f;
+}
+
+.sign-in-page button {
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 5px;
+  background: #c1121f;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.sign-in-page button:hover {
+  background: #9f0e19;
+}
+
+.sign-in-page > a {
+  color: #c1121f;
+  text-align: center;
+  text-decoration: none;
+}
+
+.sign-in-page > a:hover {
+  text-decoration: underline;
+}

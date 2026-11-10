@@ -1,0 +1,28 @@
+name: Deploy production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event.pull_request.merged == true
+    name: Deploy and verify production
+    runs-on: trackingtrucks-deploy
+    environment: production
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Trigger Jenkins and wait for deployment
+        run: /home/runner/externals/node24/bin/node devops/jenkins/scripts/trigger-deployment.mjs production

@@ -7,18 +7,94 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Dynamic;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Backend
 {
     public class Database
     {
+        private const string DatabaseRepositoryUrl = "https://github.com/ZenMastering/TrackingTrucks.git";
+        private const string DatabaseBranch = "main";
+
         static Dictionary<string, string> databaseProfileVars = new Dictionary<string, string>();
         static Dictionary<string, string> databaseSchedulesVars = new Dictionary<string, string>();
         static Dictionary<string, string> databaseTrucksVars = new Dictionary<string, string>();
 
+        public static void ExportSchedulesToCsv(string outputPath)
+        {
+            string directory = GetCollectionDirectory("Schedules");
+            if (!Directory.Exists(directory))
+            {
+                throw new DirectoryNotFoundException($"Directory not found: {directory}");
+            }
+
+            var records = new List<JsonObject>();
+            foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
+            {
+                if (Path.GetFileName(path).Equals("template.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (JsonNode.Parse(File.ReadAllText(path)) is JsonObject record)
+                {
+                    records.Add(record);
+                }
+            }
+
+            if (records.Count == 0)
+            {
+                File.WriteAllText(outputPath, string.Empty);
+                return;
+            }
+
+            // Collect all unique keys across all records to use as CSV columns
+            var headers = records.SelectMany(r => r.Select(kvp => kvp.Key)).Distinct().ToList();
+
+            var csvLines = new List<string>();
+
+            // 1. Build Header Row
+            csvLines.Add(string.Join(",", headers.Select(EscapeCsvValue)));
+
+            // 2. Build Data Rows
+            foreach (var record in records)
+            {
+                var rowValues = new List<string>();
+                foreach (var header in headers)
+                {
+                    string valueStr = string.Empty;
+                    if (record.TryGetPropertyValue(header, out var node) && node != null)
+                    {
+                        // Primitive values become strings, complex types (like arrays/objects) are serialized as JSON strings
+                        valueStr = node is JsonValue ? node.ToString() : node.ToJsonString();
+                    }
+                    rowValues.Add(EscapeCsvValue(valueStr));
+                }
+                csvLines.Add(string.Join(",", rowValues));
+            }
+
+            File.WriteAllLines(outputPath, csvLines);
+        }
+
+        private static string EscapeCsvValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+
+            // Wrap in quotes and escape internal quotes if the value contains special CSV characters
+            if (value.Contains(",") || value.Contains("\"") || value.Contains("\n") || value.Contains("\r"))
+            {
+                return $"\"{value.Replace("\"", "\"\"")}\"";
+            }
+
+            return value;
+        }
+
         public static void parseProfilesDatabase()
         {
-            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Profiles");
+            DirectoryInfo di = new DirectoryInfo(GetCollectionDirectory("Profiles"));
             foreach (FileInfo file in di.GetFiles())
             {
                 string jsonString = File.ReadAllText(file.FullName);
@@ -28,7 +104,7 @@ namespace Backend
 
         public static void parseSchedulesDatabase()
         {
-            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Schedules");
+            DirectoryInfo di = new DirectoryInfo(GetCollectionDirectory("Schedules"));
             foreach (FileInfo file in di.GetFiles())
             {
                 string jsonString = File.ReadAllText(file.FullName);
@@ -38,84 +114,245 @@ namespace Backend
 
         public static void parseTrucksDatabase()
         {
-            DirectoryInfo di = new DirectoryInfo("localRepoCopy\\Database\\Trucks");
+            DirectoryInfo di = new DirectoryInfo(GetCollectionDirectory("Trucks"));
             foreach (FileInfo file in di.GetFiles())
             {
                 string jsonString = File.ReadAllText(file.FullName);
                 Console.WriteLine(jsonString);
             }
         }
+
         public static void writeProfilesDatabase(string fileName, string json)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string jsonString = JsonSerializer.Serialize(json);
-            File.WriteAllText("localRepoCopy\\Database\\Profiles\\" + fileName, jsonString);
+            WriteDatabaseRecord("Profiles", fileName, json);
         }
 
         public static void writeSchedulesDatabase(string fileName, string json)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string jsonString = JsonSerializer.Serialize(json);
-            File.WriteAllText("localRepoCopy\\Database\\Schedules\\" + fileName, jsonString);
+            WriteDatabaseRecord("Schedules", fileName, json);
         }
 
         public static void writeTrucksDatabase(string fileName, string json)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string jsonString = JsonSerializer.Serialize(json);
-            File.WriteAllText("localRepoCopy\\Database\\Trucks\\" + fileName, jsonString);
+            WriteDatabaseRecord("Trucks", fileName, json);
+        }
+
+        public static JsonObject? getProfileDatabase(int profileId)
+        {
+            return FindRecord("Profiles", profileId)?.Record;
+        }
+
+        public static void addTruckToProfileDatabase(int profileId, int truckId)
+        {
+            var profile = FindRecord("Profiles", profileId)
+                ?? throw new FileNotFoundException($"Profile {profileId} was not found.");
+
+            if (profile.Record["truckIds"] is not JsonArray truckIds)
+            {
+                throw new InvalidDataException($"Profile {profileId} has no valid truckIds array.");
+            }
+
+            if (!ContainsId(truckIds, truckId))
+            {
+                truckIds.Add(truckId);
+                WriteDatabaseRecord("Profiles", profile.FileName, profile.Record.ToJsonString());
+            }
+        }
+
+        public static void removeTruckLinksDatabase(int truckId)
+        {
+            RemoveTruckLinksFromCollection("Profiles", truckId);
+            RemoveTruckLinksFromCollection("Schedules", truckId);
+        }
+
+        public static void deleteTrucksDatabase(string fileName)
+        {
+            string filePath = GetDatabaseRecordPath("Trucks", fileName);
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException("Truck record was not found.", filePath);
+            }
+
+            File.Delete(filePath);
+        }
+
+        public static void deleteSchedulesDatabase(string fileName)
+        {
+            string filePath = GetDatabaseRecordPath("Schedules", fileName);
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException("Schedule record was not found.", filePath);
+            }
+
+            File.Delete(filePath);
+        }
+
+        public static void deleteProfilesDatabase(string fileName)
+        {
+            string filePath = GetDatabaseRecordPath("Profiles", fileName);
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException("Profile record was not found.", filePath);
+            }
+
+            File.Delete(filePath);
+        }
+
+        private static (string FileName, JsonObject Record)? FindRecord(string collectionName, int id)
+        {
+            string directory = GetCollectionDirectory(collectionName);
+            if (!Directory.Exists(directory))
+            {
+                return null;
+            }
+
+            (string FileName, JsonObject Record)? match = null;
+            foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
+            {
+                if (Path.GetFileName(path).Equals("template.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                JsonNode? node = JsonNode.Parse(File.ReadAllText(path));
+                if (node is not JsonObject record ||
+                    record["id"] is not JsonValue recordId ||
+                    !recordId.TryGetValue<int>(out int recordIdValue) ||
+                    recordIdValue != id)
+                {
+                    continue;
+                }
+
+                if (match.HasValue)
+                {
+                    throw new InvalidDataException($"Multiple {collectionName} records have id {id}.");
+                }
+
+                match = (Path.GetFileName(path), record);
+            }
+
+            return match;
+        }
+
+        private static bool ContainsId(JsonArray values, int id)
+        {
+            return values.Any(value =>
+                value is JsonValue jsonValue &&
+                jsonValue.TryGetValue<int>(out int valueId) &&
+                valueId == id);
+        }
+
+        private static void RemoveTruckLinksFromCollection(string collectionName, int truckId)
+        {
+            string directory = GetCollectionDirectory(collectionName);
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
+            {
+                if (Path.GetFileName(path).Equals("template.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (JsonNode.Parse(File.ReadAllText(path)) is not JsonObject record ||
+                    record["truckIds"] is not JsonArray truckIds)
+                {
+                    continue;
+                }
+
+                bool changed = false;
+                for (int index = truckIds.Count - 1; index >= 0; index--)
+                {
+                    if (truckIds[index] is JsonValue value &&
+                        value.TryGetValue<int>(out int linkedTruckId) &&
+                        linkedTruckId == truckId)
+                    {
+                        truckIds.RemoveAt(index);
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    WriteDatabaseRecord(collectionName, Path.GetFileName(path), record.ToJsonString());
+                }
+            }
         }
 
         public static void pushGitDatabase(string commitMessage, string username, string token)
         {
             string localPath = "localRepoCopy";
-            string targetBranch = "octowalrus/Scrum-218";
-            try
+            string targetBranch = "main";
+            using (var repo = new Repository(localPath))
             {
-                using (var repo = new Repository(localPath))
+                // 1. Stage all changes (new, modified, or deleted JSON files)
+                Commands.Stage(repo, "*");
+
+                // 2. Check if there are actually changes to commit
+                var status = repo.RetrieveStatus();
+                if (!status.IsDirty)
                 {
-                    // 1. Stage all changes (new, modified, or deleted JSON files)
-                    Commands.Stage(repo, "*");
-
-                    // 2. Check if there are actually changes to commit
-                    var status = repo.RetrieveStatus();
-                    if (!status.IsDirty)
-                    {
-                        Console.WriteLine("No changes detected to push.");
-                        return;
-                    }
-
-                    // 3. Create a signature (Author & Committer info)
-                    var signature = new Signature("TrackingTrucksBot", "bot@trackingtrucks.local", DateTimeOffset.Now);
-
-                    // 4. Commit changes locally
-                    repo.Commit(commitMessage, signature, signature);
-                    Console.WriteLine("Changes committed locally.");
-
-                    // 5. Setup remote and push options with authentication
-                    Remote remote = repo.Network.Remotes["origin"];
-
-                    var pushOptions = new PushOptions
-                    {
-                        CredentialsProvider = (url, usernameFromUrl, allowedTypes) =>
-                            new UsernamePasswordCredentials
-                            {
-                                Username = username,
-                                Password = token // GitHub Personal Access Token (PAT)
-                            }
-                    };
-
-                    // 6. Push to the remote branch
-                    string pushRefSpec = $@"refs/heads/{targetBranch}";
-                    repo.Network.Push(remote, pushRefSpec, pushOptions);
-
-                    Console.WriteLine($"Successfully pushed changes to branch '{targetBranch}'!");
+                    Console.WriteLine("No changes detected to push.");
+                    return;
                 }
+
+                // 3. Create a signature (Author & Committer info)
+                var signature = new Signature("TrackingTrucksBot", "bot@trackingtrucks.local", DateTimeOffset.Now);
+
+                // 4. Commit changes locally
+                repo.Commit(commitMessage, signature, signature);
+                Console.WriteLine("Changes committed locally.");
+
+                // 5. Setup remote and push options with authentication
+                Remote remote = repo.Network.Remotes["origin"];
+
+                var pushOptions = new PushOptions
+                {
+                    CredentialsProvider = (url, usernameFromUrl, allowedTypes) =>
+                        new UsernamePasswordCredentials
+                        {
+                            Username = username,
+                            Password = token // GitHub Personal Access Token (PAT)
+                        }
+                };
+
+                // 6. Push to the remote branch
+                string pushRefSpec = $@"refs/heads/{DatabaseBranch}";
+                repo.Network.Push(remote, pushRefSpec, pushOptions);
+
+                Console.WriteLine($"Successfully pushed changes to branch '{DatabaseBranch}'!");
             }
-            catch (Exception ex)
+        }
+
+        private static string GetCollectionDirectory(string collectionName)
+        {
+            return Path.Combine("localRepoCopy", "Database", collectionName);
+        }
+
+        private static string GetDatabaseRecordPath(string collectionName, string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName) ||
+                fileName != Path.GetFileName(fileName) ||
+                fileName is "." or "..")
             {
-                Console.WriteLine($"Error pushing to repository: {ex.Message}");
+                throw new ArgumentException("A record file name is required.", nameof(fileName));
             }
+
+            return Path.Combine(GetCollectionDirectory(collectionName), fileName);
+        }
+
+        private static void WriteDatabaseRecord(string collectionName, string fileName, string json)
+        {
+            var record = JsonNode.Parse(json)
+                ?? throw new JsonException("A database record cannot be JSON null.");
+            string filePath = GetDatabaseRecordPath(collectionName, fileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+            File.WriteAllText(
+                filePath,
+                record.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         }
 
         public static void clearFolder(string folderName)
@@ -156,25 +393,18 @@ namespace Backend
                 }
             }
         }
+
         public static void pullGitDatabase()
         {
-            string repoUrl = "https://github.com/ZenMastering/TrackingTrucks.git";
             string localPath = "localRepoCopy";
-            string targetBranch = "octowalrus/Scrum-218";
+            string targetBranch = "main";
             var cloneOptions = new CloneOptions
             {
-                BranchName = targetBranch
+                BranchName = DatabaseBranch
             };
-            try
-            {
-                // Clone the specific branch
-                Repository.Clone(repoUrl, localPath, cloneOptions);
-                Console.WriteLine($"Repository cloned successfully on branch '{targetBranch}'!");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error cloning repository: {ex.Message}");
-            }
+            // Clone the specific branch
+            Repository.Clone(DatabaseRepositoryUrl, localPath, cloneOptions);
+            Console.WriteLine($"Repository cloned successfully on branch '{DatabaseBranch}'!");
         }
     }
 }

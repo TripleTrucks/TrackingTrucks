@@ -1,8 +1,16 @@
 {
     "id" : 1,
     "truckIds" : [1],
+    "last-revised": "10/27/2026",
+    "timezone": "America/New_York",
+    "canceled": false,
+    "soldOut": false,
     "location": {
       "name": "Downtown Retail Center",
+      "coordinates": {
+        "latitude": 36.3033,
+        "longitude": -82.3692
+      },
       "address_components": {
         "street_address": "123 Main Street",
         "extended_address": "Suite 400",
