@@ -101,10 +101,12 @@ namespace Backend
                 }
 
                 if (truck["tags"] is not JsonArray ||
-                    truck["profileIds"] is not JsonArray profileIds || profileIds.Count != 0 ||
-                    truck["scheduleIds"] is not JsonArray scheduleIds || scheduleIds.Count != 0)
+                    truck["profileIds"] is not JsonArray profileIds ||
+                    !TryGetPositiveIds(profileIds, out var requestedProfileIds) ||
+                    truck["scheduleIds"] is not JsonArray scheduleIds ||
+                    !TryGetPositiveIds(scheduleIds, out var requestedScheduleIds))
                 {
-                    return Results.BadRequest(new { error = "For now, tags must be an array and profileIds/scheduleIds must be empty arrays." });
+                    return Results.BadRequest(new { error = "tags must be an array and profileIds/scheduleIds must contain unique positive integer IDs." });
                 }
 
                 lock (databaseWriteLock)
@@ -118,11 +120,61 @@ namespace Backend
                         return Results.Conflict(new { error = $"Truck id {id} already exists." });
                     }
 
+                    if (ownerProfileId is not null &&
+                        (requestedProfileIds.Count > 0 || requestedScheduleIds.Count > 0))
+                    {
+                        return Results.BadRequest(new { error = "Owners cannot assign profiles or schedules when creating a truck." });
+                    }
+
+                    var profiles = GetDataFromDirectory(GetCollectionDirectory("Profiles"))
+                        .OfType<JsonObject>()
+                        .Where(record =>
+                            record["id"] is JsonValue recordId &&
+                            recordId.TryGetValue<int>(out var profileId) &&
+                            requestedProfileIds.Contains(profileId))
+                        .ToDictionary(record => record["id"]!.GetValue<int>());
+                    if (profiles.Count != requestedProfileIds.Count ||
+                        profiles.Values.Any(profile => profile["truckIds"] is not JsonArray))
+                    {
+                        return Results.BadRequest(new { error = "One or more selected profiles are invalid." });
+                    }
+
+                    var schedules = GetDataFromDirectory(GetCollectionDirectory("Schedules"))
+                        .OfType<JsonObject>()
+                        .Where(record =>
+                            record["id"] is JsonValue recordId &&
+                            recordId.TryGetValue<int>(out var scheduleId) &&
+                            requestedScheduleIds.Contains(scheduleId))
+                        .ToDictionary(record => record["id"]!.GetValue<int>());
+                    if (schedules.Count != requestedScheduleIds.Count ||
+                        schedules.Values.Any(schedule => schedule["truckIds"] is not JsonArray))
+                    {
+                        return Results.BadRequest(new { error = "One or more selected schedules are invalid." });
+                    }
+
                     JsonObject truckToSave = (JsonObject)truck.DeepClone();
                     if (ownerProfileId is int profileId)
                     {
                         truckToSave["profileIds"] = new JsonArray(profileId);
                         Database.addTruckToProfileDatabase(profileId, id);
+                    }
+                    else
+                    {
+                        foreach (var linkedProfileId in requestedProfileIds)
+                        {
+                            Database.addTruckToProfileDatabase(linkedProfileId, id);
+                        }
+
+                        foreach (var scheduleId in requestedScheduleIds)
+                        {
+                            var schedule = schedules[scheduleId];
+                            var linkedTruckIds = (JsonArray)schedule["truckIds"]!;
+                            if (!ContainsId(linkedTruckIds, id))
+                            {
+                                linkedTruckIds.Add(id);
+                                Database.writeSchedulesDatabase($"{scheduleId}.json", schedule.ToJsonString());
+                            }
+                        }
                     }
 
                     Database.writeTrucksDatabase($"{id}.json", truckToSave.ToJsonString());
@@ -570,6 +622,25 @@ namespace Backend
                 value is JsonValue jsonValue &&
                 jsonValue.TryGetValue<int>(out var valueId) &&
                 valueId == id);
+        }
+
+        private static bool TryGetPositiveIds(JsonArray values, out List<int> ids)
+        {
+            ids = new List<int>();
+            foreach (var value in values)
+            {
+                if (value is not JsonValue jsonValue ||
+                    !jsonValue.TryGetValue<int>(out int id) ||
+                    id <= 0 ||
+                    ids.Contains(id))
+                {
+                    return false;
+                }
+
+                ids.Add(id);
+            }
+
+            return true;
         }
 
         private static List<object> GetDataFromDirectory(string folderPath)

@@ -1,0 +1,251 @@
+.add-truck-page {
+  --add-truck-accent: #c1121f;
+  --add-truck-border: #dddddd;
+  --add-truck-muted: #666666;
+
+  min-height: calc(100vh - 60px);
+  padding: clamp(20px, 4vw, 48px);
+  background: #f7f7f7;
+}
+
+.add-truck-header,
+.add-truck-form,
+.add-truck-message {
+  width: min(100%, 760px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.add-truck-header {
+  margin-bottom: 24px;
+}
+
+.add-truck-header h1 {
+  margin: 0;
+  color: #222222;
+  font-size: clamp(28px, 4vw, 36px);
+}
+
+.add-truck-header > p:last-child {
+  max-width: 680px;
+  margin: 10px 0 0;
+  color: var(--add-truck-muted);
+  line-height: 1.6;
+}
+
+.add-truck-eyebrow {
+  margin: 0 0 6px;
+  color: var(--add-truck-accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.add-truck-form,
+.add-truck-message {
+  border: 1px solid var(--add-truck-border);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 4%);
+}
+
+.add-truck-form {
+  padding: clamp(16px, 3vw, 28px);
+}
+
+.add-truck-section + .add-truck-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #eeeeee;
+}
+
+.add-truck-section h2 {
+  margin: 0 0 16px;
+  font-size: 19px;
+}
+
+.add-truck-section-help {
+  margin: -8px 0 16px;
+  color: var(--add-truck-muted);
+  font-size: 14px;
+}
+
+.add-truck-field {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+  color: #333333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.add-truck-field input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #cccccc;
+  border-radius: 5px;
+  color: #222222;
+  font: inherit;
+  font-weight: 400;
+}
+
+.add-truck-field select {
+  width: 100%;
+  min-height: 120px;
+  padding: 8px;
+  border: 1px solid #cccccc;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #222222;
+  font: inherit;
+  font-weight: 400;
+}
+
+.add-truck-field select:focus {
+  border-color: var(--add-truck-accent);
+  outline: 2px solid rgb(193 18 31 / 18%);
+}
+
+.add-truck-field input:focus {
+  border-color: var(--add-truck-accent);
+  outline: 2px solid rgb(193 18 31 / 18%);
+}
+
+.add-truck-field small {
+  color: var(--add-truck-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.add-truck-social-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.add-truck-social-row + .add-truck-social-row {
+  margin-top: 12px;
+}
+
+.add-truck-social-row .add-truck-field {
+  min-width: 0;
+}
+
+.add-truck-remove-link,
+.add-truck-add-link {
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--add-truck-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.add-truck-remove-link {
+  margin-bottom: 5px;
+}
+
+.add-truck-add-link {
+  margin-top: 10px;
+  text-decoration: underline;
+}
+
+.add-truck-associations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.add-truck-associations .add-truck-field {
+  margin-top: 0;
+}
+
+.add-truck-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #eeeeee;
+}
+
+.add-truck-actions a {
+  color: var(--add-truck-muted);
+}
+
+.add-truck-actions button {
+  padding: 11px 18px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--add-truck-accent);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.add-truck-actions button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.add-truck-message {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+}
+
+.add-truck-error {
+  border-color: #e4a4a4;
+  background: #fff3f3;
+  color: #a50e0e;
+}
+
+.add-truck-success {
+  border-color: #a8d5b2;
+  background: #effaf1;
+  color: #176b32;
+}
+
+.add-truck-dev-note {
+  margin: 16px 0 0;
+  color: var(--add-truck-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 560px) {
+  .navbar {
+    height: auto;
+    min-height: 60px;
+    align-items: flex-start;
+    gap: 12px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .navbar-links {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px 12px;
+    font-size: 13px;
+  }
+
+  .add-truck-social-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+  }
+
+  .add-truck-social-row .add-truck-field:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .add-truck-associations {
+    grid-template-columns: 1fr;
+  }
+}

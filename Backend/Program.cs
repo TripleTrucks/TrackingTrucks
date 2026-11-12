@@ -42,7 +42,6 @@ namespace Backend
             
             Database.pushGitDatabase("Backend Automated Commit", "octowalrus", apiKey);
             */
-            Database.clearFolder("..\\localRepoCopy");
         }
     }
 }
