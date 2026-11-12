@@ -54,6 +54,14 @@ hours. Each save records the previous schedule version in its `history` array
 and writes the UTC time of the change to `last-revised`. The schedule sidebar
 shows the latest recorded revision time.
 
+Use **Specific date exceptions** to override weekly hours for a single date.
+Give each exception a title to identify its purpose. An exception with no
+hours closes the truck for that date; add hours to make a special opening
+instead. Exceptions can be set to **One time**, **Monthly** (the same day of
+each month), or **Yearly** (the same month and day each year). They are stored
+in the schedule's `dateExceptions` array and are included in schedule revision
+history.
+
 The website loads profiles, trucks, and schedules through the .NET API; it does
 not load database JSON files directly. The backend clones the `main` branch of
 `ZenMastering/TrackingTrucks` at startup and serves records from that clone.

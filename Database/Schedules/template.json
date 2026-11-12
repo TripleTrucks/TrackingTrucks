@@ -5,6 +5,7 @@
     "timezone": "America/New_York",
     "canceled": false,
     "soldOut": false,
+    "dateExceptions": [],
     "location": {
       "name": "Downtown Retail Center",
       "coordinates": {
