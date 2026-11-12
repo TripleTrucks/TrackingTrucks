@@ -57,6 +57,7 @@ function Navbar({ pathname }: { pathname: string }) {
         >
           Schedules
         </a>
+        <a href="/trucks/new" aria-current={pathname === "/trucks/new" ? "page" : undefined}>Add truck</a>
         {checkingSession ? (
           <span className="navbar-account" role="status" aria-label="Checking session">…</span>
         ) : account ? (
