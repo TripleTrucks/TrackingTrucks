@@ -9,6 +9,8 @@ using System.Linq;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Security.Claims;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 namespace Backend
 {
@@ -37,15 +39,26 @@ namespace Backend
 
         public static void startAPI(string[] args)
         {
+            var app = CreateApp(args);
+            Database.InitializeStorage();
+            app.Run();
+        }
+
+        // Building separately lets integration checks use a temporary database and publisher.
+        public static WebApplication CreateApp(string[] args, Action<string>? publishChanges = null)
+        {
+            Action<string> publish = publishChanges ?? PushDatabaseChanges;
             var builder = WebApplication.CreateBuilder(args);
+            Database.ConfigureStorage(builder.Environment.ContentRootPath,
+                builder.Environment.IsDevelopment(), builder.Configuration["TRACKINGTRUCKS_DATABASE_PATH"]);
 
             builder.Services
                 .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
                 .AddCookie(options =>
                 {
-                    options.Cookie.Name = "Dababy"; // The cookie is named Dababy
+                    options.Cookie.Name = "TrackingTrucks.Session";
                     options.Cookie.HttpOnly = true; // The cookie is accessible only through HTTP(S), not JavaScript
-                    options.Cookie.SameSite = SameSiteMode.Lax; // The cookie is sent with same-site requests and top-level navigation
+                    options.Cookie.SameSite = SameSiteMode.Strict;
                     options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
                         ? CookieSecurePolicy.SameAsRequest
                         : CookieSecurePolicy.Always; // The cookie is sent only over HTTPS in production
@@ -58,6 +71,18 @@ namespace Backend
                 });
 
             builder.Services.AddAuthorization();
+            builder.Services.AddRateLimiter(options =>
+            {
+                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
+                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 20,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0
+                    }));
+            });
 
             var app = builder.Build();
 
@@ -73,6 +98,25 @@ namespace Backend
                 }
             });
 
+            app.UseRouting();
+            app.UseRateLimiter();
+            app.Use(async (context, next) =>
+            {
+                if (context.Request.Path.StartsWithSegments("/api/auth") ||
+                    context.Request.Path == "/api/Profiles/signup")
+                {
+                    context.Response.Headers.CacheControl = "no-store";
+                    // A custom header prevents cross-origin forms from changing browser sessions.
+                    if (HttpMethods.IsPost(context.Request.Method) &&
+                        context.Request.Headers["X-Requested-With"] != "TrackingTrucks")
+                    {
+                        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                        await context.Response.WriteAsJsonAsync(new { error = "Invalid authentication request." });
+                        return;
+                    }
+                }
+                await next(context);
+            });
             app.UseAuthentication();
             app.UseAuthorization();
 
@@ -84,40 +128,41 @@ namespace Backend
             {
                 if (request["username"] is not JsonValue usernameValue ||
                     !usernameValue.TryGetValue<string>(out var username) ||
-                    string.IsNullOrWhiteSpace(username))
+                    string.IsNullOrWhiteSpace(username) || username.Length > 50)
                 {
                     return Results.BadRequest(new { error = "Username is required." });
                 }
 
                 if (request["password"] is not JsonValue passwordValue ||
                     !passwordValue.TryGetValue<string>(out var password) ||
-                    string.IsNullOrWhiteSpace(password))
+                    string.IsNullOrWhiteSpace(password) || password.Length > 1024)
                 {
                     return Results.BadRequest(new { error = "Password is required." });
                 }
 
-                var profile = GetDataFromDirectory(GetCollectionDirectory("Profiles"))
-                    .OfType<JsonObject>()
-                    .FirstOrDefault(record =>
-                        record["username"] is JsonValue profileUsernameValue &&
-                        profileUsernameValue.TryGetValue<string>(out var profileUsername) &&
-                        string.Equals(
-                            profileUsername,
-                            username.Trim(),
-                            StringComparison.OrdinalIgnoreCase));
-
-                if (profile is null ||
-                    profile["password"] is not JsonValue profilePasswordValue ||
-                    !profilePasswordValue.TryGetValue<string>(out var profilePassword) ||
-                    !string.Equals(profilePassword, password, StringComparison.Ordinal))
+                JsonObject? profile;
+                int profileId;
+                lock (databaseWriteLock)
                 {
-                    return Results.Unauthorized();
-                }
+                    profile = GetDataFromDirectory(GetCollectionDirectory("Profiles"))
+                        .OfType<JsonObject>()
+                        .FirstOrDefault(record =>
+                            record["username"] is JsonValue value &&
+                            value.TryGetValue<string>(out var existingUsername) &&
+                            string.Equals(existingUsername, username.Trim(), StringComparison.OrdinalIgnoreCase));
 
-                if (profile["id"] is not JsonValue idValue ||
-                !idValue.TryGetValue<int>(out var profileId))
-                {
-                    return Results.Problem("The profile is missing a valid ID");
+                    if (profile is null || !ProfilePasswords.Verify(profile, password, out var needsUpgrade))
+                        return Results.Unauthorized();
+
+                    if (profile["id"] is not JsonValue idValue ||
+                        !idValue.TryGetValue<int>(out profileId) || profileId <= 0)
+                        return Results.Unauthorized();
+
+                    if (needsUpgrade)
+                    {
+                        Database.updateProfilePassword(profileId, ProfilePasswords.Hash(profile, password));
+                        publish($"Upgrade password storage for profile {profileId}");
+                    }
                 }
 
                 var claims = new[]
@@ -134,11 +179,21 @@ namespace Backend
                     CookieAuthenticationDefaults.AuthenticationScheme,
                     new ClaimsPrincipal(identity));
 
-                return Results.Ok(new
-                {
-                    id = profileId,
-                    username = username.Trim(),
-                });
+                return Results.Ok(AccountView(profile));
+            }).RequireRateLimiting("auth");
+
+            app.MapGet("/api/auth/session", (HttpContext context) =>
+            {
+                if (!int.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id))
+                    return Results.Unauthorized();
+                var profile = Database.getProfileDatabase(id);
+                return profile is null ? Results.Unauthorized() : Results.Ok(AccountView(profile));
+            }).RequireAuthorization();
+
+            app.MapPost("/api/auth/logout", async (HttpContext context) =>
+            {
+                await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                return Results.NoContent();
             });
 
             // ==========================================
@@ -270,7 +325,7 @@ namespace Backend
                     }
 
                     Database.writeTrucksDatabase($"{id}.json", truckToSave.ToJsonString());
-                    PushDatabaseChanges($"Create truck {id}");
+                    publish($"Create truck {id}");
                     return Results.Created($"/api/Trucks/{id}", truckToSave);
                 }
             });
@@ -319,7 +374,7 @@ namespace Backend
                     }
 
                     Database.writeTrucksDatabase($"{id}.json", updatedTruck.ToJsonString());
-                    PushDatabaseChanges($"Update truck {id}");
+                    publish($"Update truck {id}");
                     return Results.Ok(updatedTruck);
                 }
             });
@@ -356,7 +411,7 @@ namespace Backend
 
                     Database.removeTruckLinksDatabase(id);
                     Database.deleteTrucksDatabase($"{id}.json");
-                    PushDatabaseChanges($"Delete truck {id}");
+                    publish($"Delete truck {id}");
                     return Results.NoContent();
                 }
             });
@@ -402,7 +457,7 @@ namespace Backend
                     if (exists) return Results.Conflict(new { error = $"Schedule id {id} already exists." });
 
                     Database.writeSchedulesDatabase($"{id}.json", schedule.ToJsonString());
-                    PushDatabaseChanges($"Create schedule {id}");
+                    publish($"Create schedule {id}");
                     return Results.Created($"/api/Schedules/{id}", schedule);
                 }
             });
@@ -453,7 +508,7 @@ namespace Backend
                     scheduleToSave["last-revised"] = updatedAt;
 
                     Database.writeSchedulesDatabase($"{id}.json", scheduleToSave.ToJsonString());
-                    PushDatabaseChanges($"Update schedule {id}");
+                    publish($"Update schedule {id}");
                     return Results.Ok(scheduleToSave);
                 }
             });
@@ -474,7 +529,7 @@ namespace Backend
                     if (existing is null) return Results.NotFound();
 
                     Database.deleteSchedulesDatabase($"{id}.json");
-                    PushDatabaseChanges($"Delete schedule {id}");
+                    publish($"Delete schedule {id}");
                     return Results.NoContent();
                 }
             });
@@ -485,7 +540,8 @@ namespace Backend
 
             app.MapGet("/api/Profiles", () =>
             {
-                var data = GetDataFromDirectory(GetCollectionDirectory("Profiles"));
+                var data = GetDataFromDirectory(GetCollectionDirectory("Profiles"))
+                    .OfType<JsonObject>().Select(PublicProfile);
                 return Results.Ok(new { Data = data, Status = "Success", Timestamp = DateTime.UtcNow });
             });
 
@@ -496,7 +552,7 @@ namespace Backend
                     .FirstOrDefault(record => record["id"]?.GetValue<int>() == id);
 
                 if (profile is null) return Results.NotFound();
-                return Results.Ok(profile);
+                return Results.Ok(PublicProfile(profile));
             });
 
             app.MapPost("/api/Profiles", (HttpContext context, JsonObject profile) =>
@@ -521,8 +577,8 @@ namespace Backend
                     if (exists) return Results.Conflict(new { error = $"Profile id {id} already exists." });
 
                     Database.writeProfilesDatabase($"{id}.json", profile.ToJsonString());
-                    PushDatabaseChanges($"Create profile {id}");
-                    return Results.Created($"/api/Profiles/{id}", profile);
+                    publish($"Create profile {id}");
+                    return Results.Created($"/api/Profiles/{id}", PublicProfile(profile));
                 }
             });
 
@@ -547,8 +603,8 @@ namespace Backend
                     }
 
                     Database.writeProfilesDatabase($"{id}.json", updatedProfile.ToJsonString());
-                    PushDatabaseChanges($"Update profile {id}");
-                    return Results.Ok(updatedProfile);
+                    publish($"Update profile {id}");
+                    return Results.Ok(PublicProfile(updatedProfile));
                 }
             });
 
@@ -568,51 +624,19 @@ namespace Backend
                     if (existing is null) return Results.NotFound();
 
                     Database.deleteProfilesDatabase($"{id}.json");
-                    PushDatabaseChanges($"Delete profile {id}");
+                    publish($"Delete profile {id}");
                     return Results.NoContent();
                 }
             });
 
             // ==========================================
-            // SIGN IN ENDPOINT
+            // REGISTRATION ENDPOINT
             // ==========================================
 
             app.MapPost("/api/Profiles/signup", (JsonObject request) =>
             {
-                if (request["username"] is not JsonValue usernameValue ||
-                    !usernameValue.TryGetValue<string>(out var username) ||
-                    string.IsNullOrWhiteSpace(username) ||
-                    username.Length > 50)
-                {
-                    return Results.BadRequest(new { error = "Username is required and must be 50 characters or less." });
-                }
-
-                if (request["displayname"] is not JsonValue displayNameValue ||
-                    !displayNameValue.TryGetValue<string>(out var displayName) ||
-                    string.IsNullOrWhiteSpace(displayName) ||
-                    displayName.Length > 100)
-                {
-                    return Results.BadRequest(new { error = "Display name is required and must be 100 characters or less." });
-                }
-
-                if (request["password"] is not JsonValue passwordValue ||
-                    !passwordValue.TryGetValue<string>(out var password) ||
-                    string.IsNullOrWhiteSpace(password) ||
-                    password.Length < 8)
-                {
-                    return Results.BadRequest(new { error = "Password is required and must be at least 8 characters long." });
-                }
-
-                string phoneNumber = "";
-                if (request["phone-number"] is JsonNode phoneNode)
-                {
-                    if (phoneNode is not JsonValue phoneValue ||
-                        !phoneValue.TryGetValue<string>(out phoneNumber) ||
-                        phoneNumber.Length > 30)
-                    {
-                        return Results.BadRequest(new { error = "Phone number must be a non-empty string and no more than 30 characters." });
-                    }
-                }
+                if (!ProfileRegistration.TryRead(request, out var registration, out var error))
+                    return Results.BadRequest(new { error });
 
                 lock (databaseWriteLock)
                 {
@@ -623,7 +647,7 @@ namespace Backend
                     bool usernameExists = profiles.Any(p =>
                         p["username"] is JsonValue value &&
                         value.TryGetValue<string>(out var existingUsername) &&
-                        string.Equals(existingUsername, username.Trim(), StringComparison.OrdinalIgnoreCase));
+                        string.Equals(existingUsername, registration.Username, StringComparison.OrdinalIgnoreCase));
 
                     if (usernameExists)
                     {
@@ -648,20 +672,29 @@ namespace Backend
                     var profile = new JsonObject
                     {
                         ["id"] = id,
-                        ["username"] = username.Trim(),
-                        ["displayname"] = displayName.Trim(),
-                        ["password"] = password,
-                        ["phone-number"] = phoneNumber,
+                        ["username"] = registration.Username,
+                        ["displayname"] = registration.DisplayName,
+                        ["password-hash"] = ProfilePasswords.Hash(new JsonObject(), registration.Password),
+                        ["phone-number"] = registration.PhoneNumber,
                         ["role"] = "user",
                         ["truckIds"] = new JsonArray()
                     };
 
-                    Database.writeProfilesDatabase($"{id}.json", profile.ToJsonString());
-                    PushDatabaseChanges($"Create profile {id}");
+                    try
+                    {
+                        Database.createProfileDatabase(profile, publish);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                        or InvalidOperationException or LibGit2Sharp.LibGit2SharpException)
+                    {
+                        app.Logger.LogError("Profile registration could not be saved ({ErrorType}).", exception.GetType().Name);
+                        return Results.Json(new { error = "Your account could not be saved. Please try again." },
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
 
-                    return Results.Created($"/api/Profiles/{id}", profile);
+                    return Results.Created($"/api/Profiles/{id}", PublicProfile(profile));
                 }
-            });
+            }).RequireRateLimiting("auth");
 
             // HEALTH CHECK
             // ==========================================
@@ -671,12 +704,26 @@ namespace Backend
             app.MapFallback("/api/{**path}", () => Results.NotFound());
             app.MapFallbackToFile("index.html");
 
-            app.Run();
+            return app;
         }
+
+        private static JsonObject PublicProfile(JsonObject profile) => new()
+        {
+            ["id"] = profile["id"]?.DeepClone(),
+            ["displayname"] = profile["displayname"]?.DeepClone(),
+            ["truckIds"] = profile["truckIds"]?.DeepClone() ?? new JsonArray()
+        };
+
+        private static JsonObject AccountView(JsonObject profile) => new()
+        {
+            ["id"] = profile["id"]?.DeepClone(),
+            ["username"] = profile["username"]?.DeepClone(),
+            ["displayname"] = profile["displayname"]?.DeepClone()
+        };
 
         private static string GetCollectionDirectory(string collectionName)
         {
-            return Path.Combine("localRepoCopy", "Database", collectionName);
+            return Database.GetCollectionDirectory(collectionName);
         }
 
         private static bool TryGetDevelopmentOwnerProfileId(HttpContext context, out int profileId)
@@ -761,6 +808,7 @@ namespace Backend
 
         private static void PushDatabaseChanges(string commitMessage)
         {
+            if (!Database.UsesGitStorage) return;
             string token = Environment.GetEnvironmentVariable("API_PRIVATE_KEY")
                 ?? throw new InvalidOperationException("API_PRIVATE_KEY is not configured.");
             if (string.IsNullOrWhiteSpace(token))
