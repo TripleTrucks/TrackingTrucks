@@ -8,6 +8,15 @@ export interface ScheduleHistoryEntry {
   schedule: Omit<Schedule, "history">;
 }
 
+export type DateExceptionRecurrence = "once" | "monthly" | "yearly";
+
+export interface ScheduleDateException {
+  date: string;
+  title?: string;
+  recurrence: DateExceptionRecurrence;
+  ranges: TimeRange[];
+}
+
 export type DayKey =
   | "monday"
   | "tuesday"
@@ -22,6 +31,7 @@ export interface Schedule {
   truckIds: number[];
   "last-revised"?: string;
   history?: ScheduleHistoryEntry[];
+  dateExceptions?: ScheduleDateException[];
   canceled?: boolean;
   soldOut?: boolean;
   timezone?: string;
@@ -94,6 +104,46 @@ function parseTime(time: string): number | undefined {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
+function getLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDateException(
+  schedule: Schedule,
+  date: Date
+): ScheduleDateException | undefined {
+  const dateKey = getLocalDateKey(date);
+  const monthAndDay = dateKey.slice(5);
+  const dayOfMonth = dateKey.slice(8);
+  const matchingExceptions = (schedule.dateExceptions ?? []).filter(
+    (exception) =>
+      (exception.recurrence === "once" && exception.date === dateKey) ||
+      (exception.recurrence === "monthly" &&
+        date >= new Date(`${exception.date}T00:00:00`) &&
+        exception.date.slice(8) === dayOfMonth) ||
+      (exception.recurrence === "yearly" &&
+        date >= new Date(`${exception.date}T00:00:00`) &&
+        exception.date.slice(5) === monthAndDay)
+  );
+
+  return (
+    matchingExceptions.find((exception) => exception.recurrence === "once") ??
+    matchingExceptions.find((exception) => exception.recurrence === "monthly") ??
+    matchingExceptions.find((exception) => exception.recurrence === "yearly")
+  );
+}
+
+function getRangesForDate(
+  schedule: Schedule,
+  date: Date,
+  day: DayKey
+): TimeRange[] {
+  return getDateException(schedule, date)?.ranges ?? schedule[day] ?? [];
+}
+
 function parseRevisionDate(value: string | undefined): Date | undefined {
   if (!value) {
     return undefined;
@@ -160,7 +210,9 @@ function getScheduleStatus(
 
   const today = now.getDay();
   const currentMinute = now.getHours() * 60 + now.getMinutes();
-  const todayRanges = schedule[dayKeys[today]] ?? [];
+  const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayException = getDateException(schedule, todayDate);
+  const todayRanges = todayException?.ranges ?? schedule[dayKeys[today]] ?? [];
   let hasUpcomingOpening = false;
 
   for (const range of todayRanges) {
@@ -190,8 +242,11 @@ function getScheduleStatus(
     }
   }
 
-  const previousDay = dayKeys[(today + 6) % dayKeys.length];
-  const isOpenFromPreviousDay = (schedule[previousDay] ?? []).some((range) => {
+  const previousDate = new Date(todayDate);
+  previousDate.setDate(previousDate.getDate() - 1);
+  const previousDay = dayKeys[previousDate.getDay()];
+  const previousRanges = getRangesForDate(schedule, previousDate, previousDay);
+  const isOpenFromPreviousDay = !todayException && previousRanges.some((range) => {
     const start = parseTime(range.startTime);
     const end = parseTime(range.endTime);
 
@@ -208,9 +263,11 @@ function getScheduleStatus(
   }
 
   for (let offset = 1; offset <= dayKeys.length; offset += 1) {
-    const day = dayKeys[(today + offset) % dayKeys.length];
+    const futureDate = new Date(todayDate);
+    futureDate.setDate(futureDate.getDate() + offset);
+    const day = dayKeys[futureDate.getDay()];
     if (
-      (schedule[day] ?? []).some((range) => {
+      getRangesForDate(schedule, futureDate, day).some((range) => {
         const start = parseTime(range.startTime);
         const end = parseTime(range.endTime);
         return start !== undefined && end !== undefined && start !== end;
@@ -218,6 +275,24 @@ function getScheduleStatus(
     ) {
       hasUpcomingOpening = true;
       break;
+    }
+  }
+
+  if (!hasUpcomingOpening) {
+    for (let offset = dayKeys.length + 1; offset <= 366; offset += 1) {
+      const futureDate = new Date(todayDate);
+      futureDate.setDate(futureDate.getDate() + offset);
+      const exception = getDateException(schedule, futureDate);
+      if (
+        exception?.ranges.some((range) => {
+          const start = parseTime(range.startTime);
+          const end = parseTime(range.endTime);
+          return start !== undefined && end !== undefined && start !== end;
+        })
+      ) {
+        hasUpcomingOpening = true;
+        break;
+      }
     }
   }
 

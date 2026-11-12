@@ -5,6 +5,22 @@ export interface RegistrationDetails {
   "phone-number": string;
 }
 
+export async function login(details: { username: string; password: string }): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch("/api/auth/login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(details),
+    });
+  } catch {
+    throw new Error("Unable to connect. Check your connection and try again.");
+  }
+  if (response.status === 401) throw new Error("Username or password is incorrect.");
+  if (!response.ok) throw new Error("Unable to sign in. Please try again.");
+}
+
 export async function registerOperator(details: RegistrationDetails): Promise<void> {
   let response: Response;
   try {
