@@ -1,20 +1,19 @@
 import { useEffect, useState } from "react";
 import "./Home.css";
 
-import Navbar from "./components/Navbar";
-import MapView from "./components/MapView";
-import SideBar from "./components/SideBar";
+import MapView from "../src/components/MapView";
+import SideBar from "../src/components/SideBar";
 import {
   getDrivingRoute,
   type DrivingRoute,
-} from "./geoapifyRouting";
+} from "../src/geoapifyRouting";
 import {
   fetchProfiles,
   fetchSchedules,
   fetchTrucks,
-} from "./schedulesApi";
-import type { Profile, Truck } from "./dataTypes";
-import type { Schedule } from "./truckStatus";
+} from "../src/schedulesApi";
+import type { Profile, Truck } from "../src/dataTypes";
+import type { Schedule } from "../src/truckStatus";
 
 type RouteState = {
   scheduleId: number;
@@ -142,7 +141,6 @@ function Home() {
 
   return (
     <div className="home">
-      <Navbar />
 
       <div className="main-layout">
         <SideBar

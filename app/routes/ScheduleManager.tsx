@@ -1,17 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
-import Navbar from "./components/Navbar";
 import {
   formatRevisionDate,
   fetchSchedules,
   fetchTrucks,
   updateSchedule,
-} from "./schedulesApi";
-import type { Truck } from "./dataTypes";
+} from "../src/schedulesApi";
+import type { Truck } from "../src/dataTypes";
 import {
   type DayKey,
   type Schedule,
   type TimeRange,
-} from "./truckStatus";
+} from "../src/truckStatus";
 import "./ScheduleManager.css";
 
 const days: { label: string; key: DayKey }[] = [
@@ -170,7 +169,6 @@ function ScheduleManager() {
 
   return (
     <div className="home">
-      <Navbar />
       <main className="schedule-page">
         <header className="schedule-page-header">
           <div>

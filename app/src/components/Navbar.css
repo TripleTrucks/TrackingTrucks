@@ -1,0 +1,127 @@
+.navbar {
+  height: var(--navbar-height);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 clamp(20px, 4vw, 48px);
+  background: #ffffff;
+  border-bottom: 1px solid #eae5e6;
+  box-shadow: 0 2px 12px rgba(65, 16, 21, 0.03);
+}
+
+.navbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #272326;
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  border-radius: 8px;
+}
+
+.navbar-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #c1121f;
+  color: #ffffff;
+}
+
+.navbar-mark svg {
+  width: 24px;
+  height: 24px;
+}
+
+.navbar-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.navbar-links a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #625c60;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.navbar-links a:hover {
+  background: #f6f4f4;
+  color: #272326;
+}
+
+.navbar-links a[aria-current="page"] {
+  background: #fff0f1;
+  color: #a50e1a;
+}
+
+.navbar-links .navbar-login {
+  margin-left: 12px;
+  padding: 0 20px;
+  background: #c1121f;
+  color: #ffffff;
+}
+
+.navbar-links .navbar-login:hover {
+  background: #9f0e19;
+}
+
+.navbar-links .navbar-login[aria-current="page"] {
+  background: #9f0e19;
+  border-color: #790b13;
+}
+
+@media (max-width: 640px) {
+  .navbar {
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+
+  .navbar-brand {
+    font-size: 17px;
+  }
+
+  .navbar-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .navbar-mark svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  .navbar-links a {
+    min-height: 38px;
+    padding: 0 14px;
+    font-size: 13px;
+  }
+
+  .navbar-links .navbar-login {
+    margin-left: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navbar-links a {
+    transition: none;
+  }
+}

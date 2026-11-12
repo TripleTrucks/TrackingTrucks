@@ -1,44 +1,7 @@
 .home {
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--navbar-height));
   width: 100%;
   background: #ffffff;
-}
-
-/* Navigation */
-
-.navbar {
-  height: 60px;
-  width: 100%;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  padding: 0 24px;
-
-  background: #ffffff;
-  border-bottom: 2px solid #c1121f;
-}
-
-.navbar-brand {
-  color: #c1121f;
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.navbar-links {
-  display: flex;
-  gap: 20px;
-}
-
-.navbar-links a {
-  color: #222222;
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.navbar-links a:hover {
-  color: #c1121f;
 }
 
 /* Main layout */
@@ -47,7 +10,7 @@
   display: flex;
 
   width: 100%;
-  height: calc(100vh - 60px);
+  height: calc(100dvh - var(--navbar-height));
 
   overflow: hidden;
 }

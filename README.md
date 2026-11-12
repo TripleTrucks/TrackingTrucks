@@ -31,6 +31,21 @@ ASP.NET Core. Set `ASPNETCORE_URLS` to change the bind address. `start` defaults
 to Production; the existing development-only role headers are enabled only by
 `npm run dev` (or an explicit `ASPNETCORE_ENVIRONMENT=Development`).
 
+## Frontend routes
+
+Page views and their styles live in `app/routes`, with the route table in
+`app/routes/index.tsx`. `app/src/App.tsx` provides the shared navbar for every
+page; reusable components and API clients remain in `app/src`.
+
+- `/`: truck map and directory.
+- `/schedules`: schedule management.
+- `/signin`: operator registration, posting to `/api/Profiles/signup` with a
+  display name, username, password, and optional phone number.
+- `/login`: the existing login view. Authentication is not connected yet.
+
+Registration follows the existing API contract, which creates a profile with
+the `user` role; it does not grant owner permissions or start a login session.
+
 ## Geocode schedule locations
 
 Schedule addresses can be geocoded once and saved as latitude/longitude values
@@ -49,7 +64,7 @@ The map displays OpenStreetMap and Geoapify attribution as required.
 
 ## Manage schedules
 
-Open **Manage schedules** in the website navigation to edit upcoming weekly
+Open **Schedules** in the website navigation to edit upcoming weekly
 hours. Each save records the previous schedule version in its `history` array
 and writes the UTC time of the change to `last-revised`. The schedule sidebar
 shows the latest recorded revision time.
