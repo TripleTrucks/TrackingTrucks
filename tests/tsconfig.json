@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "../app/src",
+    "outDir": "../.cache/tests"
+  },
+  "include": ["../app/src/profilesApi.ts"]
+}

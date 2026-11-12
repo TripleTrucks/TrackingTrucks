@@ -3,7 +3,7 @@
   --schedule-border: #dddddd;
   --schedule-muted: #666666;
 
-  min-height: calc(100vh - 60px);
+  min-height: calc(100dvh - var(--navbar-height));
   padding: clamp(20px, 4vw, 48px);
   background: #f7f7f7;
 }
@@ -244,6 +244,104 @@
   padding: 12px;
   border: 1px solid #e8e8e8;
   border-radius: 7px;
+}
+
+.schedule-exceptions {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #eeeeee;
+}
+
+.schedule-exceptions-heading h2 {
+  margin: 0;
+  color: #222222;
+  font-size: 18px;
+}
+
+.schedule-exceptions-heading p,
+.schedule-exceptions-empty {
+  margin: 6px 0 0;
+  color: var(--schedule-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.schedule-exception-add,
+.schedule-exception-heading {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.schedule-exception-add label,
+.schedule-exception-heading label {
+  display: grid;
+  gap: 5px;
+  color: var(--schedule-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.schedule-exception-add input,
+.schedule-exception-add select,
+.schedule-exception-heading input[type="text"],
+.schedule-exception-heading input,
+.schedule-exception-heading select {
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #cccccc;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #222222;
+  font: inherit;
+}
+
+.schedule-exception-add label:first-child input,
+.schedule-exception-heading label:first-child input {
+  min-width: 180px;
+}
+
+.schedule-exception-list {
+  display: grid;
+  gap: 10px;
+}
+
+.schedule-exception {
+  padding: 12px;
+  border: 1px solid #e8e8e8;
+  border-radius: 7px;
+  background: #fcfcfc;
+}
+
+.schedule-exception-heading {
+  margin-bottom: 12px;
+}
+
+.schedule-exception-heading .schedule-remove-button {
+  padding: 7px 0;
+}
+
+.schedule-exception-label {
+  margin: 4px 0 0;
+  color: #333333;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.schedule-history-exceptions {
+  display: grid;
+  gap: 6px;
+  padding-top: 12px;
+  color: #333333;
+  font-size: 12px;
+}
+
+.schedule-history-exceptions p {
+  margin: 0;
+  color: var(--schedule-muted);
 }
 
 .schedule-day-heading h3 {

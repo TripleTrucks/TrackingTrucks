@@ -127,6 +127,7 @@ function SideBar({
     const truckSchedules = (selectedTruck.scheduleIds ?? [])
       .map((id) => schedules.find((schedule) => schedule.id === id))
       .filter((schedule) => schedule !== undefined);
+    const socialMediaLinks = selectedTruck["social-media"] ?? [];
     const truckStatus = getTruckStatus(
       selectedTruck.scheduleIds ?? [],
       currentTime,
@@ -144,6 +145,12 @@ function SideBar({
 
         <div className="truck-details">
           <h2>{selectedTruck.truckname}</h2>
+          <a
+            className="route-button truck-edit-link"
+            href={`/trucks/${selectedTruck.id}/edit`}
+          >
+            Edit truck
+          </a>
           <StatusBadge status={truckStatus} />
 
           <div className="truck-tags">
@@ -284,12 +291,36 @@ function SideBar({
           
           <section className="sidebar-section">
             <h3>Social Media</h3>
-            <p>Not provided</p>
+            {socialMediaLinks.length > 0 ? (
+              socialMediaLinks.map((link) => (
+                <p key={link.platform}>
+                  <a href={link.url} target="_blank" rel="noreferrer">
+                    {link.platform}
+                  </a>
+                </p>
+              ))
+            ) : (
+              <p>Not provided</p>
+            )}
           </section>
         </div>
       </aside>
     );
   }
+
+  const visibleTruckIds = new Set(visibleTrucks.map((truck) => truck.id));
+  const unassignedTrucks = trucks.filter(
+    (truck) =>
+      (truck.scheduleIds ?? []).length === 0 && !visibleTruckIds.has(truck.id)
+  );
+  const listedTrucks = [
+    ...visibleTrucks
+      .map((visibleTruck) =>
+        trucks.find((truck) => truck.id === visibleTruck.id)
+      )
+      .filter((truck): truck is Truck => truck !== undefined),
+    ...unassignedTrucks,
+  ];
 
   return (
     <aside className="sidebar">
@@ -308,15 +339,10 @@ function SideBar({
       <div className="truck-list">
         {scheduleLoadStatus === "loading" ? (
           <p style={{ padding: "20px" }}>Loading truck data from the API…</p>
-        ) : scheduleLoadStatus === "error" ? null : visibleTrucks.length === 0 ? (
+        ) : scheduleLoadStatus === "error" ? null : listedTrucks.length === 0 ? (
           <p style={{ padding: "20px" }}>No trucks visible in this map area.</p>
         ) : (
-          visibleTrucks
-            .map((visibleTruck) =>
-              trucks.find((truck) => truck.id === visibleTruck.id)
-            )
-            .filter((truck): truck is Truck => truck !== undefined)
-            .map((truck) => (
+          listedTrucks.map((truck) => (
             <button
               key={truck.id}
               className="truck-card"
@@ -338,11 +364,15 @@ function SideBar({
                 {truck.tags.join(" • ")}
               </div>
 
+              {(truck.scheduleIds ?? []).length === 0 && (
+                <div className="truck-card-revision">No schedule assigned</div>
+              )}
+
               <div className="truck-card-revision">
                 Schedule last updated: {getTruckRevisionLabel(truck)}
               </div>
             </button>
-            ))
+          ))
         )}
       </div>
     </aside>

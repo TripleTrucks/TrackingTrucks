@@ -18,7 +18,10 @@ spec:
       image: jenkins/inbound-agent:jdk21
       workingDir: /home/jenkins/agent
     - name: build
-      image: node:24-bookworm
+      image: node:24.22.2-bookworm
+      # Temporary workaround for host AppArmor stacked-profile signal denials.
+      securityContext:
+        appArmorProfile: {type: Unconfined}
       workingDir: /home/jenkins/agent
       command: ["sleep", "infinity"]
       env:
@@ -26,6 +29,7 @@ spec:
           valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
       envFrom:
         - configMapRef: {name: deploy-code-settings}
+        - secretRef: {name: frontend-env}
       resources:
         requests: {cpu: 100m, memory: 256Mi}
         limits: {cpu: "2", memory: 2Gi}

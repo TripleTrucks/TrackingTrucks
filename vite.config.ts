@@ -8,7 +8,12 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       watch: {
-        ignored: ["**/Backend/localRepoCopy/**"],
+        ignored: [
+          "**/Backend/localRepoCopy/**",
+          "**/Backend/bin/**",
+          "**/Backend/obj/**",
+          "**/.vs/**",
+        ],
       },
       proxy: {
         "/api": {
