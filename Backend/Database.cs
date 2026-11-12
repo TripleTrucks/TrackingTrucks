@@ -142,6 +142,15 @@ namespace Backend
             return FindRecord("Profiles", profileId)?.Record;
         }
 
+        public static void updateProfilePassword(int profileId, string passwordHash)
+        {
+            var profile = FindRecord("Profiles", profileId)
+                ?? throw new FileNotFoundException($"Profile {profileId} was not found.");
+            profile.Record.Remove("password");
+            profile.Record["password-hash"] = passwordHash;
+            WriteDatabaseRecord("Profiles", profile.FileName, profile.Record.ToJsonString());
+        }
+
         public static void addTruckToProfileDatabase(int profileId, int truckId)
         {
             var profile = FindRecord("Profiles", profileId)

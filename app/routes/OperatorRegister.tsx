@@ -61,7 +61,7 @@ export default function OperatorRegister() {
         {isRegistered ? (
           <div className="auth-success" role="status">
             <p>Your profile is ready.</p>
-            <a className="auth-button" href="/">Explore trucks</a>
+            <a className="auth-button" href="/login">Log in</a>
           </div>
         ) : (
           <form className="auth-form" onSubmit={handleSubmit} aria-busy={isSubmitting}>
@@ -83,7 +83,7 @@ export default function OperatorRegister() {
               <label>
                 Password
                 <span className="auth-password-field">
-                  <input type={showPassword ? "text" : "password"} name="password" autoComplete="new-password" minLength={8} aria-describedby="password-hint" required />
+                  <input type={showPassword ? "text" : "password"} name="password" autoComplete="new-password" minLength={8} maxLength={1024} aria-describedby="password-hint" required />
                   <button type="button" className="auth-password-toggle" aria-label={showPassword ? "Hide passwords" : "Show passwords"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>
                     {showPassword ? "Hide" : "Show"}
                   </button>
@@ -92,7 +92,7 @@ export default function OperatorRegister() {
               </label>
               <label>
                 Confirm password
-                <input type={showPassword ? "text" : "password"} name="confirm-password" autoComplete="new-password" minLength={8} required />
+                <input type={showPassword ? "text" : "password"} name="confirm-password" autoComplete="new-password" minLength={8} maxLength={1024} required />
               </label>
             </fieldset>
             {error && <p className="auth-message" role="alert">{error}</p>}
@@ -102,7 +102,7 @@ export default function OperatorRegister() {
           </form>
         )}
 
-        <footer className="auth-footer">Already have an account? <a href="/login">Log in</a></footer>
+        {!isRegistered && <footer className="auth-footer">Already have an account? <a href="/login">Log in</a></footer>}
       </section>
     </main>
   );

@@ -38,14 +38,14 @@ export default function Login() {
         </header>
         <form className="auth-form" onSubmit={handleSubmit} aria-busy={isSubmitting}>
           <fieldset disabled={isSubmitting}>
-          <label>
-            Username
-            <input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={50} required />
-          </label>
-          <label>
-            Password
-            <input type="password" name="password" autoComplete="current-password" required />
-          </label>
+            <label>
+              Username
+              <input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={50} required />
+            </label>
+            <label>
+              Password
+              <input type="password" name="password" autoComplete="current-password" maxLength={1024} required />
+            </label>
           </fieldset>
           {message && <p className="auth-message" role="alert">{message}</p>}
           <button className="auth-button" type="submit" disabled={isSubmitting}>{isSubmitting ? "Signing in…" : "Sign in"}</button>

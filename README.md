@@ -41,10 +41,30 @@ page; reusable components and API clients remain in `app/src`.
 - `/schedules`: schedule management.
 - `/signin`: operator registration, posting to `/api/Profiles/signup` with a
   display name, username, password, and optional phone number.
-- `/login`: the existing login view. Authentication is not connected yet.
+- `/login`: username/password login through `/api/auth/login`.
 
 Registration follows the existing API contract, which creates a profile with
 the `user` role; it does not grant owner permissions or start a login session.
+After registration, select **Log in**. Successful login returns to the map;
+the navbar shows the account name and **Log out**. Sessions use an HttpOnly
+cookie with eight-hour tickets and require HTTPS outside Development.
+
+`GET /api/auth/session` restores the current account and
+`POST /api/auth/logout` clears the browser session. Authentication POST requests
+must include `X-Requested-With: TrackingTrucks`; the frontend API client sends
+this automatically. Login and signup share a limit of 20 requests per minute
+per connecting IP.
+
+New registrations store password hashes. Existing plaintext records are
+upgraded on successful login, and profile API responses omit credentials and
+phone numbers. This does not remove old plaintext values from Git history.
+Registration and legacy-password upgrades use the existing Git-backed storage
+and require `API_PRIVATE_KEY` with write access to the database repository.
+
+Run frontend API tests with `npm test`. Run the isolated backend authentication
+checks with `dotnet run --project tests/Backend.Integration/Backend.Integration.csproj`
+(use `~/.dotnet8/dotnet` if .NET is not on PATH). These checks use temporary
+records and a fake publisher; they do not clone or push the live database.
 
 ## Geocode schedule locations
 

@@ -1,6 +1,38 @@
+import { useEffect, useState } from "react";
+import { getCurrentAccount, logout, type Account } from "../profilesApi";
 import "./Navbar.css";
 
 function Navbar({ pathname }: { pathname: string }) {
+  const [account, setAccount] = useState<Account | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getCurrentAccount(controller.signal)
+      .then(setAccount)
+      .catch(() => {
+        if (!controller.signal.aborted) setAccount(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCheckingSession(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    setError(null);
+    try {
+      await logout();
+      window.location.assign("/login");
+    } catch {
+      setError("Couldn’t log out. Try again.");
+      setLoggingOut(false);
+    }
+  }
+
   return (
     <nav className="navbar" aria-label="Main navigation">
       <a className="navbar-brand" href="/">
@@ -25,7 +57,19 @@ function Navbar({ pathname }: { pathname: string }) {
         >
           Schedules
         </a>
-        <a className="navbar-login" href="/login" aria-current={pathname === "/login" ? "page" : undefined}>Login</a>
+        {checkingSession ? (
+          <span className="navbar-account" role="status" aria-label="Checking session">…</span>
+        ) : account ? (
+          <div className="navbar-session">
+            <span className="navbar-account" title={account.displayname}>{account.displayname}</span>
+            <button className="navbar-login" onClick={handleLogout} disabled={loggingOut}>
+              {loggingOut ? "Logging out…" : "Log out"}
+            </button>
+            {error && <p className="navbar-error" role="alert">{error}</p>}
+          </div>
+        ) : (
+          <a className="navbar-login" href="/login" aria-current={pathname === "/login" ? "page" : undefined}>Login</a>
+        )}
       </div>
     </nav>
   );
