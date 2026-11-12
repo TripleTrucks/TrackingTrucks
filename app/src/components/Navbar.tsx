@@ -1,5 +1,6 @@
 function Navbar() {
   const isSchedulePage = window.location.pathname === "/schedules";
+  const isAddTruckPage = window.location.pathname === "/trucks/new";
 
   return (
     <nav className="navbar">
@@ -16,6 +17,12 @@ function Navbar() {
           aria-current={isSchedulePage ? "page" : undefined}
         >
           Manage schedules
+        </a>
+        <a
+          href="/trucks/new"
+          aria-current={isAddTruckPage ? "page" : undefined}
+        >
+          Add truck
         </a>
         <a href="/signin">Login</a>
       </div>

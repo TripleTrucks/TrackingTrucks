@@ -45,29 +45,44 @@ function Home() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let controller: AbortController | null = null;
 
-    Promise.all([
-      fetchTrucks(controller.signal),
-      fetchProfiles(controller.signal),
-      fetchSchedules(controller.signal),
-    ])
-      .then(([trucks, loadedProfiles, schedules]) => {
-        setCurrentTrucks(trucks);
-        setProfiles(loadedProfiles);
-        setCurrentSchedules(schedules);
-        setScheduleLoadStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setApiError(
-            error instanceof Error ? error.message : "The API is unavailable."
-          );
-          setScheduleLoadStatus("error");
-        }
-      });
+    function loadDashboardData() {
+      controller?.abort();
+      controller = new AbortController();
+      const { signal } = controller;
 
-    return () => controller.abort();
+      Promise.all([
+        fetchTrucks(signal),
+        fetchProfiles(signal),
+        fetchSchedules(signal),
+      ])
+        .then(([trucks, loadedProfiles, schedules]) => {
+          setCurrentTrucks(trucks);
+          setProfiles(loadedProfiles);
+          setCurrentSchedules(schedules);
+          setScheduleLoadStatus("ready");
+          setApiError(null);
+        })
+        .catch((error: unknown) => {
+          if (!signal.aborted) {
+            setApiError(
+              error instanceof Error
+                ? error.message
+                : "The API is unavailable."
+            );
+            setScheduleLoadStatus("error");
+          }
+        });
+    }
+
+    loadDashboardData();
+    window.addEventListener("focus", loadDashboardData);
+
+    return () => {
+      controller?.abort();
+      window.removeEventListener("focus", loadDashboardData);
+    };
   }, []);
 
   useEffect(() => {
