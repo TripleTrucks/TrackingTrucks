@@ -16,6 +16,49 @@ namespace Backend
         private const string DatabaseRepositoryUrl = "https://github.com/ZenMastering/TrackingTrucks.git";
         private const string DatabaseBranch = "main";
 
+        public static string DatabaseDirectory { get; private set; } = Path.GetFullPath("localRepoCopy/Database");
+        public static bool UsesGitStorage { get; private set; } = true;
+
+        public static void ConfigureStorage(string contentRoot, bool isDevelopment, string? configuredDirectory)
+        {
+            UsesGitStorage = !isDevelopment && string.IsNullOrWhiteSpace(configuredDirectory);
+            if (!string.IsNullOrWhiteSpace(configuredDirectory))
+            {
+                DatabaseDirectory = Path.GetFullPath(configuredDirectory, contentRoot);
+                return;
+            }
+
+            if (isDevelopment)
+            {
+                for (var directory = new DirectoryInfo(contentRoot); directory is not null; directory = directory.Parent)
+                {
+                    var candidate = Path.Combine(directory.FullName, "Database");
+                    if (File.Exists(Path.Combine(candidate, "Profiles", "template.json")))
+                    {
+                        DatabaseDirectory = candidate;
+                        return;
+                    }
+                }
+                DatabaseDirectory = Path.Combine(contentRoot, "Database");
+                return;
+            }
+
+            DatabaseDirectory = Path.Combine(contentRoot, "localRepoCopy", "Database");
+        }
+
+        public static void InitializeStorage()
+        {
+            if (UsesGitStorage)
+            {
+                clearFolder(Path.GetDirectoryName(DatabaseDirectory)!);
+                pullGitDatabase();
+            }
+            else
+            {
+                Directory.CreateDirectory(DatabaseDirectory);
+            }
+        }
+
         static Dictionary<string, string> databaseProfileVars = new Dictionary<string, string>();
         static Dictionary<string, string> databaseSchedulesVars = new Dictionary<string, string>();
         static Dictionary<string, string> databaseTrucksVars = new Dictionary<string, string>();
@@ -125,6 +168,22 @@ namespace Backend
         public static void writeProfilesDatabase(string fileName, string json)
         {
             WriteDatabaseRecord("Profiles", fileName, json);
+        }
+
+        public static void createProfileDatabase(JsonObject profile, Action<string> publish)
+        {
+            int id = profile["id"]!.GetValue<int>();
+            string fileName = $"{id}.json";
+            WriteDatabaseRecord("Profiles", fileName, profile.ToJsonString(), overwrite: false);
+            try
+            {
+                publish($"Create profile {id}");
+            }
+            catch
+            {
+                File.Delete(GetDatabaseRecordPath("Profiles", fileName));
+                throw;
+            }
         }
 
         public static void writeSchedulesDatabase(string fileName, string json)
@@ -293,8 +352,7 @@ namespace Backend
 
         public static void pushGitDatabase(string commitMessage, string username, string token)
         {
-            string localPath = "localRepoCopy";
-            string targetBranch = "main";
+            string localPath = Path.GetDirectoryName(DatabaseDirectory)!;
             using (var repo = new Repository(localPath))
             {
                 // 1. Stage all changes (new, modified, or deleted JSON files)
@@ -336,9 +394,9 @@ namespace Backend
             }
         }
 
-        private static string GetCollectionDirectory(string collectionName)
+        public static string GetCollectionDirectory(string collectionName)
         {
-            return Path.Combine("localRepoCopy", "Database", collectionName);
+            return Path.Combine(DatabaseDirectory, collectionName);
         }
 
         private static string GetDatabaseRecordPath(string collectionName, string fileName)
@@ -353,15 +411,23 @@ namespace Backend
             return Path.Combine(GetCollectionDirectory(collectionName), fileName);
         }
 
-        private static void WriteDatabaseRecord(string collectionName, string fileName, string json)
+        private static void WriteDatabaseRecord(string collectionName, string fileName, string json, bool overwrite = true)
         {
             var record = JsonNode.Parse(json)
                 ?? throw new JsonException("A database record cannot be JSON null.");
             string filePath = GetDatabaseRecordPath(collectionName, fileName);
             Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
-            File.WriteAllText(
-                filePath,
-                record.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            string temporaryPath = filePath + $".{Guid.NewGuid():N}.tmp";
+            try
+            {
+                File.WriteAllText(temporaryPath,
+                    record.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(temporaryPath, filePath, overwrite);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
         }
 
         public static void clearFolder(string folderName)
@@ -405,8 +471,7 @@ namespace Backend
 
         public static void pullGitDatabase()
         {
-            string localPath = "localRepoCopy";
-            string targetBranch = "main";
+            string localPath = Path.GetDirectoryName(DatabaseDirectory)!;
             var cloneOptions = new CloneOptions
             {
                 BranchName = DatabaseBranch

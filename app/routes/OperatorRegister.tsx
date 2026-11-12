@@ -38,6 +38,7 @@ export default function OperatorRegister() {
         username,
         displayname,
         password,
+        "confirm-password": String(data.get("confirm-password") ?? ""),
         "phone-number": String(data.get("phone-number") ?? "").trim(),
       });
       form.reset();

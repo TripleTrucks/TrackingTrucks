@@ -6,6 +6,7 @@ const details = {
   username: "test-operator",
   displayname: "Test Operator",
   password: "example-password",
+  "confirm-password": "example-password",
   "phone-number": "",
 };
 
@@ -91,4 +92,31 @@ test("registration reports network failure and allows a retry", async (t) => {
   await assert.rejects(registerOperator(details), /Check your connection and try again/);
   fetchMock.mock.mockImplementation(async () => new Response(null, { status: 201 }));
   await assert.doesNotReject(registerOperator(details));
+});
+
+test("invalid signup fields never reach the backend", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 201 }));
+  const invalidValues = [
+    { username: " " }, { username: "bad username" }, { username: "x".repeat(51) },
+    { displayname: " " }, { displayname: "x".repeat(101) }, { displayname: "Bad\nName" }, { displayname: "Bad\u0085Name" },
+    { password: "short" }, { password: "        " }, { password: "p".repeat(1025) },
+    { "confirm-password": "different" }, { "phone-number": "invalid" }, { "phone-number": "123" },
+  ];
+  for (const value of invalidValues) {
+    await assert.rejects(registerOperator({ ...details, ...value }));
+  }
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("signup trims profile fields without changing the password", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 201 }));
+  await registerOperator({ ...details, username: ` ${details.username} `, displayname: ` ${details.displayname} ` });
+  assert.deepEqual(JSON.parse(fetchMock.mock.calls[0].arguments[1].body), details);
+});
+
+test("failed storage is reported as a failed signup", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response(
+    JSON.stringify({ error: "Your account could not be saved. Please try again." }), { status: 503 }
+  ));
+  await assert.rejects(registerOperator(details), /could not be saved/);
 });

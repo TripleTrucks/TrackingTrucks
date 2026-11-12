@@ -128,8 +128,14 @@
   font-weight: 600;
 }
 
+.auth-card a.auth-button:link,
+.auth-card a.auth-button:visited {
+  color: #ffffff;
+}
+
 .auth-button:hover:not(:disabled) {
   background: #9f0e19;
+  color: #ffffff;
 }
 
 .auth-button:disabled {
@@ -158,12 +164,10 @@
   line-height: 1.6;
 }
 
-.auth-footer a {
+.auth-footer a:link,
+.auth-footer a:visited {
   color: #a50e1a;
   text-decoration: none;
-}
-
-.auth-footer a {
   font-weight: 600;
 }
 

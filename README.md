@@ -39,8 +39,9 @@ page; reusable components and API clients remain in `app/src`.
 
 - `/`: truck map and directory.
 - `/schedules`: schedule management.
+- `/trucks/new` and `/trucks/:id/edit`: truck creation and editing.
 - `/signin`: operator registration, posting to `/api/Profiles/signup` with a
-  display name, username, password, and optional phone number.
+  display name, username, password, `confirm-password`, and optional phone number.
 - `/login`: username/password login through `/api/auth/login`.
 
 Registration follows the existing API contract, which creates a profile with
@@ -58,13 +59,35 @@ per connecting IP.
 New registrations store password hashes. Existing plaintext records are
 upgraded on successful login, and profile API responses omit credentials and
 phone numbers. This does not remove old plaintext values from Git history.
-Registration and legacy-password upgrades use the existing Git-backed storage
-and require `API_PRIVATE_KEY` with write access to the database repository.
+
+Signup validates all fields before writing: a 1–50 character username using
+letters, digits, `. _ @ + -`; a 1–100 character display name; an 8–1024 character
+password with matching confirmation; and, when provided, a phone number with
+7–15 digits. Duplicate usernames are rejected case-insensitively. Invalid
+requests create no profile. A failed save returns an error and removes the
+new profile file so the signup can be retried.
+
+## Database location
+
+With `npm run dev`, the backend reads and writes this checkout's `Database`
+directory. A successful signup creates `Database/Profiles/<id>.json`, and login
+reads that same file. Accounts remain available after restarting the backend.
+Local development does not clone, push, or require Git credentials.
+
+Set `TRACKINGTRUCKS_DATABASE_PATH` to an absolute database-directory path to use
+another local directory or a persistent volume. Relative paths are resolved
+against the backend's content root. All collections use that directory.
+
+Production without this setting retains the existing Git-backed storage:
+`localRepoCopy/Database` from the database repository's `main` branch. Writes
+and legacy-password upgrades in that mode require `API_PRIVATE_KEY` with write
+access. Use HTTPS for production cookie sessions.
 
 Run frontend API tests with `npm test`. Run the isolated backend authentication
 checks with `dotnet run --project tests/Backend.Integration/Backend.Integration.csproj`
 (use `~/.dotnet8/dotnet` if .NET is not on PATH). These checks use temporary
-records and a fake publisher; they do not clone or push the live database.
+records, including failed-save and restart scenarios; they do not clone or
+push the live database.
 
 ## Geocode schedule locations
 
@@ -98,13 +121,12 @@ in the schedule's `dateExceptions` array and are included in schedule revision
 history.
 
 The website loads profiles, trucks, and schedules through the .NET API; it does
-not load database JSON files directly. The backend clones the `main` branch of
-`ZenMastering/TrackingTrucks` at startup and serves records from that clone.
+not load database JSON files directly. See **Database location** above for local
+and production storage behavior.
 Run `npm run dev` to start both Vite and the .NET backend. Vite
 forwards `/api` requests to the backend's HTTP port (`62926`). Set
 `API_PROXY_TARGET` in `.env` if the API is running at a different address.
-Schedule updates are saved to the backend's working clone and pushed to `main`,
-so configure `API_PRIVATE_KEY` for the backend before saving.
+Schedule updates use the same configured database directory as profiles.
 
 ## Show driving routes
 

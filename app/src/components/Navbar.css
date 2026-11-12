@@ -122,11 +122,13 @@
 
 .navbar-links .navbar-login:hover {
   background: #9f0e19;
+  color: #ffffff;
 }
 
 .navbar-links .navbar-login[aria-current="page"] {
   background: #9f0e19;
   border-color: #790b13;
+  color: #ffffff;
 }
 
 @media (max-width: 900px) {
@@ -161,12 +163,13 @@
   .navbar-links a,
   .navbar-links button {
     min-height: 38px;
-    padding: 0 14px;
-    font-size: 13px;
+    padding: 0 8px;
+    font-size: 12px;
   }
 
   .navbar-links .navbar-login {
-    margin-left: 6px;
+    margin-left: 4px;
+    padding: 0 10px;
   }
 
 }

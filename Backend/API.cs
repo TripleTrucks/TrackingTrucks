@@ -37,13 +37,20 @@ namespace Backend
             return role is "user" or "owner" or "admin";
         }
 
-        public static void startAPI(string[] args) => CreateApp(args).Run();
+        public static void startAPI(string[] args)
+        {
+            var app = CreateApp(args);
+            Database.InitializeStorage();
+            app.Run();
+        }
 
         // Building separately lets integration checks use a temporary database and publisher.
         public static WebApplication CreateApp(string[] args, Action<string>? publishChanges = null)
         {
             Action<string> publish = publishChanges ?? PushDatabaseChanges;
             var builder = WebApplication.CreateBuilder(args);
+            Database.ConfigureStorage(builder.Environment.ContentRootPath,
+                builder.Environment.IsDevelopment(), builder.Configuration["TRACKINGTRUCKS_DATABASE_PATH"]);
 
             builder.Services
                 .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -628,41 +635,8 @@ namespace Backend
 
             app.MapPost("/api/Profiles/signup", (JsonObject request) =>
             {
-                if (request["username"] is not JsonValue usernameValue ||
-                    !usernameValue.TryGetValue<string>(out var username) ||
-                    string.IsNullOrWhiteSpace(username) ||
-                    username.Length > 50)
-                {
-                    return Results.BadRequest(new { error = "Username is required and must be 50 characters or less." });
-                }
-
-                if (request["displayname"] is not JsonValue displayNameValue ||
-                    !displayNameValue.TryGetValue<string>(out var displayName) ||
-                    string.IsNullOrWhiteSpace(displayName) ||
-                    displayName.Length > 100)
-                {
-                    return Results.BadRequest(new { error = "Display name is required and must be 100 characters or less." });
-                }
-
-                if (request["password"] is not JsonValue passwordValue ||
-                    !passwordValue.TryGetValue<string>(out var password) ||
-                    string.IsNullOrWhiteSpace(password) ||
-                    password.Length < 8 || password.Length > 1024)
-                {
-                    return Results.BadRequest(new { error = "Password must be between 8 and 1024 characters." });
-                }
-
-                string phoneNumber = "";
-                if (request["phone-number"] is JsonNode phoneNode)
-                {
-                    if (phoneNode is not JsonValue phoneValue ||
-                        !phoneValue.TryGetValue<string>(out var requestedPhoneNumber) ||
-                        requestedPhoneNumber is null || requestedPhoneNumber.Length > 30)
-                    {
-                        return Results.BadRequest(new { error = "Phone number must be a non-empty string and no more than 30 characters." });
-                    }
-                    phoneNumber = requestedPhoneNumber;
-                }
+                if (!ProfileRegistration.TryRead(request, out var registration, out var error))
+                    return Results.BadRequest(new { error });
 
                 lock (databaseWriteLock)
                 {
@@ -673,7 +647,7 @@ namespace Backend
                     bool usernameExists = profiles.Any(p =>
                         p["username"] is JsonValue value &&
                         value.TryGetValue<string>(out var existingUsername) &&
-                        string.Equals(existingUsername, username.Trim(), StringComparison.OrdinalIgnoreCase));
+                        string.Equals(existingUsername, registration.Username, StringComparison.OrdinalIgnoreCase));
 
                     if (usernameExists)
                     {
@@ -698,16 +672,25 @@ namespace Backend
                     var profile = new JsonObject
                     {
                         ["id"] = id,
-                        ["username"] = username.Trim(),
-                        ["displayname"] = displayName.Trim(),
-                        ["password-hash"] = ProfilePasswords.Hash(new JsonObject(), password),
-                        ["phone-number"] = phoneNumber,
+                        ["username"] = registration.Username,
+                        ["displayname"] = registration.DisplayName,
+                        ["password-hash"] = ProfilePasswords.Hash(new JsonObject(), registration.Password),
+                        ["phone-number"] = registration.PhoneNumber,
                         ["role"] = "user",
                         ["truckIds"] = new JsonArray()
                     };
 
-                    Database.writeProfilesDatabase($"{id}.json", profile.ToJsonString());
-                    publish($"Create profile {id}");
+                    try
+                    {
+                        Database.createProfileDatabase(profile, publish);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                        or InvalidOperationException or LibGit2Sharp.LibGit2SharpException)
+                    {
+                        app.Logger.LogError("Profile registration could not be saved ({ErrorType}).", exception.GetType().Name);
+                        return Results.Json(new { error = "Your account could not be saved. Please try again." },
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
 
                     return Results.Created($"/api/Profiles/{id}", PublicProfile(profile));
                 }
@@ -740,7 +723,7 @@ namespace Backend
 
         private static string GetCollectionDirectory(string collectionName)
         {
-            return Path.Combine("localRepoCopy", "Database", collectionName);
+            return Database.GetCollectionDirectory(collectionName);
         }
 
         private static bool TryGetDevelopmentOwnerProfileId(HttpContext context, out int profileId)
@@ -825,6 +808,7 @@ namespace Backend
 
         private static void PushDatabaseChanges(string commitMessage)
         {
+            if (!Database.UsesGitStorage) return;
             string token = Environment.GetEnvironmentVariable("API_PRIVATE_KEY")
                 ?? throw new InvalidOperationException("API_PRIVATE_KEY is not configured.");
             if (string.IsNullOrWhiteSpace(token))
