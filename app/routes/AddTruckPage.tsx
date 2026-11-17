@@ -359,12 +359,26 @@ function AddTruckPage() {
               disabled={
                 isSaving ||
                 isLoadingOptions ||
-                optionsError !== null
+                optionsError !== null ||
+                !import.meta.env.DEV
               }
             >
               {isSaving ? "Adding truck…" : "Add truck"}
             </button>
           </div>
+          {import.meta.env.DEV && (
+            <p className="add-truck-dev-note">
+              Local development only: this form uses the API’s development
+              admin role. Production truck creation requires authenticated
+              API support.
+            </p>
+          )}
+          {!import.meta.env.DEV && (
+            <p className="add-truck-dev-note">
+              Truck creation is unavailable here because the production API
+              does not yet provide an authenticated create operation.
+            </p>
+          )}
         </form>
       </main>
     </div>
