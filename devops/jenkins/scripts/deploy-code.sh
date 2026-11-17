@@ -154,9 +154,6 @@ if [[ -z "${SELECTED_IMAGE:-}" ]]; then
   : "${BUILD_NODE:?Fresh builds must run on the node containing the imported image}"
 fi
 
-# Provision this namespace's database PVC and migrate existing data before deploying.
-kube get pvc trackingtrucks-database >/dev/null
-
 # Save the entire previous spec, including the old PVC layout during the first migration.
 kube get deployment trackingtrucks --ignore-not-found -o json > "$bin_dir/previous.json"
 node - "$bin_dir/previous.json" <<'JS'
@@ -204,7 +201,7 @@ const deployment = {
     minReadySeconds: 10,
     progressDeadlineSeconds: 300,
     selector: {matchLabels: labels},
-    strategy: {type: 'Recreate'},
+    strategy: {type: 'RollingUpdate', rollingUpdate: {maxUnavailable: 0, maxSurge: 1}},
     template: {
       metadata: {
         labels,
@@ -216,24 +213,20 @@ const deployment = {
       },
       spec: {
         // Fresh builds exist only on the agent's node until publication succeeds.
-        // Let the scheduler bind WaitForFirstConsumer PVCs on the build node.
-        ...(process.env.SELECTED_IMAGE ? {} : {affinity: {nodeAffinity: {
-          requiredDuringSchedulingIgnoredDuringExecution: {nodeSelectorTerms: [{
-            matchFields: [{key: 'metadata.name', operator: 'In', values: [process.env.BUILD_NODE]}]
-          }]}
-        }}}),
+        ...(process.env.SELECTED_IMAGE ? {} : {nodeName: process.env.BUILD_NODE}),
         automountServiceAccountToken: false,
         ...(process.env.DEPLOY_NAMESPACE === 'production' ? {imagePullSecrets: [{name: 'registry-reader'}]} : {}),
         securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000},
-        // Seed only an empty volume. Existing records and deletions survive deployments.
+        // fsGroup makes the volume writable but does not change its root owner.
+        // LibGit2 requires the repository directory itself to belong to the app user.
         initContainers: [{
-          name: 'prepare-database',
+          name: 'prepare-backend-repo',
           image: process.env.DEPLOY_IMAGE,
           imagePullPolicy: process.env.DEPLOY_NAMESPACE !== 'production' ? 'Never' : 'IfNotPresent',
-          command: ['/bin/sh', '-ec', 'if [ ! -d /data/Database ]; then rm -rf /data/seed-tmp; mkdir /data/seed-tmp; cp -R /app/Database/. /data/seed-tmp/; mv /data/seed-tmp /data/Database; fi'],
+          command: ['/bin/sh', '-ec', 'mkdir -p /repo/checkout'],
           securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ['ALL']}},
           resources: {requests: {cpu: '10m', memory: '16Mi'}, limits: {cpu: '100m', memory: '64Mi'}},
-          volumeMounts: [{name: 'database', mountPath: '/data'}]
+          volumeMounts: [{name: 'backend-repo', mountPath: '/repo'}]
         }],
         containers: [{
           name: 'app',
@@ -241,14 +234,14 @@ const deployment = {
           imagePullPolicy: process.env.DEPLOY_NAMESPACE !== 'production' ? 'Never' : 'IfNotPresent',
           securityContext: {runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ['ALL']}},
           ports: [{name: 'http', containerPort: 5173}],
-          env: [{name: 'TRACKINGTRUCKS_DATABASE_PATH', value: '/data/Database'}],
+          envFrom: [{secretRef: {name: 'backend-env', optional: true}}],
           startupProbe: {httpGet: {path: '/healthz', port: 'http'}, periodSeconds: 5, failureThreshold: 60},
           readinessProbe: {httpGet: {path: '/api/health', port: 'http'}, periodSeconds: 5},
           livenessProbe: {httpGet: {path: '/healthz', port: 'http'}, periodSeconds: 10},
           resources: {requests: {cpu: '100m', memory: '256Mi'}, limits: {cpu: '1', memory: '1Gi'}},
-          volumeMounts: [{name: 'tmp', mountPath: '/tmp'}, {name: 'database', mountPath: '/data'}]
+          volumeMounts: [{name: 'tmp', mountPath: '/tmp'}, {name: 'backend-repo', mountPath: '/app/localRepoCopy', subPath: 'checkout'}]
         }],
-        volumes: [{name: 'tmp', emptyDir: {}}, {name: 'database', persistentVolumeClaim: {claimName: 'trackingtrucks-database'}}]
+        volumes: [{name: 'tmp', emptyDir: {}}, {name: 'backend-repo', emptyDir: {}}]
       }
     }
   }

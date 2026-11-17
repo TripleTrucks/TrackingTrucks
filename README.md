@@ -78,22 +78,10 @@ Set `TRACKINGTRUCKS_DATABASE_PATH` to an absolute database-directory path to use
 another local directory or a persistent volume. Relative paths are resolved
 against the backend's content root. All collections use that directory.
 
-Container deployments select the backend’s existing local JSON storage mode by setting
-`TRACKINGTRUCKS_DATABASE_PATH=/data/Database` and mounting a separate persistent volume
-in each namespace. This mode requires no GitHub token, clone, or push. Without that
-setting, the backend still defaults to Git storage outside Development.
-Use HTTPS for production cookie sessions.
-
-Before the first rollout, provision `devops/jenkins/scripts/database-pvc.yaml` in each
-namespace and copy the existing pod's `/app/localRepoCopy/Database` into the PVC's
-`Database` directory while writes are stopped. Keep a backup and verify record counts
-before replacing the old pod: its current `emptyDir` is deleted with the pod.
-Do not seed from the image if an existing environment has records to preserve.
-Update the Jenkins script ConfigMap and deploy-code RBAC using the checked-in scripts.
-The init container seeds a **new** volume from the image only when `Database` is absent;
-subsequent rollouts preserve records and deletions. Deployments use `Recreate` to keep
-one JSON writer active; expect a brief outage during rollout. Old images need the local
-path override and the persistent mount too; never roll back to the old temporary layout.
+Production without this setting retains the existing Git-backed storage:
+`localRepoCopy/Database` from the database repository's `main` branch. Writes
+and legacy-password upgrades in that mode require `API_PRIVATE_KEY` with write
+access. Use HTTPS for production cookie sessions.
 
 Run frontend API tests with `npm test`. Run the isolated backend authentication
 checks with `dotnet run --project tests/Backend.Integration/Backend.Integration.csproj`
