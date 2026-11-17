@@ -5,5 +5,8 @@
     "rootDir": "../app/src",
     "outDir": "../.cache/tests"
   },
-  "include": ["../app/src/profilesApi.ts"]
+  "include": [
+    "../app/src/profilesApi.ts",
+    "../app/src/mapTruckLocations.ts"
+  ]
 }
