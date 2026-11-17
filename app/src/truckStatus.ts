@@ -65,15 +65,12 @@ export type TruckStatusName =
   | "Scheduled Later"
   | "Closed"
   | "Canceled"
-  | "Sold Out"
-  | "Stale";
+  | "Sold Out";
 
 export interface TruckStatus {
   name: TruckStatusName;
   className: string;
 }
-
-const STALE_AFTER_DAYS = 7;
 
 const dayKeys: DayKey[] = [
   "sunday",
@@ -91,7 +88,6 @@ const statusClassNames: Record<TruckStatusName, string> = {
   Closed: "closed",
   Canceled: "canceled",
   "Sold Out": "sold-out",
-  Stale: "stale",
 };
 
 function parseTime(time: string): number | undefined {
@@ -144,54 +140,6 @@ function getRangesForDate(
   return getDateException(schedule, date)?.ranges ?? schedule[day] ?? [];
 }
 
-function parseRevisionDate(value: string | undefined): Date | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const match =
-    /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) ??
-    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
-
-  if (!match) {
-    return undefined;
-  }
-
-  const isIsoDate = value.includes("-");
-  const year = Number(isIsoDate ? match[1] : match[3]);
-  const month = Number(isIsoDate ? match[2] : match[1]);
-  const day = Number(isIsoDate ? match[3] : match[2]);
-  const date = new Date(year, month - 1, day);
-
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
-    return undefined;
-  }
-
-  return date;
-}
-
-function isStale(schedule: Schedule, now: Date): boolean {
-  const revised = parseRevisionDate(schedule["last-revised"]);
-
-  if (!revised) {
-    return true;
-  }
-
-  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  const revisedUtc = Date.UTC(
-    revised.getFullYear(),
-    revised.getMonth(),
-    revised.getDate()
-  );
-  const ageInDays = (todayUtc - revisedUtc) / 86_400_000;
-
-  return ageInDays > STALE_AFTER_DAYS;
-}
-
 function getScheduleStatus(
   schedule: Schedule,
   now: Date
@@ -202,10 +150,6 @@ function getScheduleStatus(
 
   if (schedule.soldOut) {
     return "Sold Out";
-  }
-
-  if (isStale(schedule, now)) {
-    return "Stale";
   }
 
   const today = now.getDay();
@@ -331,10 +275,6 @@ export function getTruckStatus(
     return toTruckStatus("Sold Out");
   }
 
-  if (statuses.includes("Stale")) {
-    return toTruckStatus("Stale");
-  }
-
   if (statuses.includes("Canceled")) {
     return toTruckStatus("Canceled");
   }
@@ -343,5 +283,5 @@ export function getTruckStatus(
     return toTruckStatus("Closed");
   }
 
-  return toTruckStatus("Stale");
+  return toTruckStatus("Closed");
 }
