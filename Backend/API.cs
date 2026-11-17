@@ -224,19 +224,28 @@ namespace Backend
 
             app.MapPost("/api/Trucks", (HttpContext context, JsonObject truck) =>
             {
-                if (!TryGetDevelopmentRole(context, app.Environment, out var role) || role == "user")
-                {
-                    return Results.StatusCode(StatusCodes.Status403Forbidden);
-                }
-
+                string role;
                 int? ownerProfileId = null;
-                if (role == "owner")
+                if (context.User.Identity?.IsAuthenticated == true)
                 {
-                    if (!TryGetDevelopmentOwnerProfileId(context, out int profileId))
+                    if (!int.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var profileId))
+                        return Results.Unauthorized();
+                    var profile = Database.getProfileDatabase(profileId);
+                    role = profile?["role"]?.GetValue<string>()?.ToLowerInvariant() ?? "user";
+                    if (role is not ("owner" or "admin"))
+                        return Results.Json(new { error = "An owner or admin account is required to add trucks." }, statusCode: 403);
+                    if (role == "owner") ownerProfileId = profileId;
+                }
+                else
+                {
+                    if (!TryGetDevelopmentRole(context, app.Environment, out role))
+                        return Results.Json(new { error = "Sign in to add a truck." }, statusCode: 401);
+                    if (role == "user") return Results.StatusCode(403);
+                    if (role == "owner")
                     {
-                        return Results.StatusCode(StatusCodes.Status403Forbidden);
+                        if (!TryGetDevelopmentOwnerProfileId(context, out var profileId)) return Results.StatusCode(403);
+                        ownerProfileId = profileId;
                     }
-                    ownerProfileId = profileId;
                 }
 
                 if (truck["id"] is not JsonValue idValue || !idValue.TryGetValue<int>(out var id) || id <= 0)
