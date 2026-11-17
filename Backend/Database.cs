@@ -13,7 +13,7 @@ namespace Backend
 {
     public class Database
     {
-        private const string DatabaseRepositoryUrl = "https://github.com/ZenMastering/TrackingTrucks.git";
+        private const string DatabaseRepositoryUrl = "https://github.com/TripleTrucks/TrackingTrucks.git";
         private const string DatabaseBranch = "main";
 
         public static string DatabaseDirectory { get; private set; } = Path.GetFullPath("localRepoCopy/Database");
@@ -182,6 +182,19 @@ namespace Backend
             catch
             {
                 File.Delete(GetDatabaseRecordPath("Profiles", fileName));
+                throw;
+            }
+        }
+
+        public static void saveScheduleDatabase(int id, JsonObject schedule, Action<string> publish)
+        {
+            var existing = FindRecord("Schedules", id)
+                ?? throw new FileNotFoundException($"Schedule {id} was not found.");
+            WriteDatabaseRecord("Schedules", existing.FileName, schedule.ToJsonString());
+            try { publish($"Update schedule {id}"); }
+            catch
+            {
+                WriteDatabaseRecord("Schedules", existing.FileName, existing.Record.ToJsonString());
                 throw;
             }
         }
@@ -370,6 +383,7 @@ namespace Backend
                 var signature = new Signature("TrackingTrucksBot", "bot@trackingtrucks.local", DateTimeOffset.Now);
 
                 // 4. Commit changes locally
+                var previousCommit = repo.Head.Tip;
                 repo.Commit(commitMessage, signature, signature);
                 Console.WriteLine("Changes committed locally.");
 
@@ -388,7 +402,17 @@ namespace Backend
 
                 // 6. Push to the remote branch
                 string pushRefSpec = $@"refs/heads/{DatabaseBranch}";
-                repo.Network.Push(remote, pushRefSpec, pushOptions);
+                try
+                {
+                    repo.Network.Push(remote, pushRefSpec, pushOptions);
+                }
+                catch
+                {
+                    // A rejected push must not leave a failed signup in local Git history.
+                    // Keep working files so the caller can restore its own transaction.
+                    repo.Reset(ResetMode.Mixed, previousCommit);
+                    throw;
+                }
 
                 Console.WriteLine($"Successfully pushed changes to branch '{DatabaseBranch}'!");
             }

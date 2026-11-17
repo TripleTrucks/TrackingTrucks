@@ -1,3 +1,4 @@
+using LibGit2Sharp;
 using Backend;
 using System.Net;
 using System.Net.Http.Json;
@@ -159,6 +160,23 @@ try
     response = await retryClient.PostAsJsonAsync("/api/Profiles/signup", invalid);
     Check(response.StatusCode == HttpStatusCode.Created, "A failed signup can be retried without a duplicate account");
     Check(!Directory.GetFiles(profilesDirectory).Any(path => path.EndsWith(".tmp")), "Atomic writes leave no temporary files");
+    var schedulesDirectory = Database.GetCollectionDirectory("Schedules");
+    Directory.CreateDirectory(schedulesDirectory);
+    var schedulePath = Path.Combine(schedulesDirectory, "named-schedule.json");
+    var originalSchedule = "{\"id\":41,\"truckIds\":[],\"name\":\"Original\"}";
+    File.WriteAllText(schedulePath, originalSchedule);
+    failPublication = true;
+    response = await retryClient.PutAsJsonAsync("/api/Schedules/41", new { id = 41, name = "Changed" });
+    Check(response.StatusCode == HttpStatusCode.ServiceUnavailable,
+        "Failed schedule publication returns a controlled 503");
+    Check(JsonNode.DeepEquals(JsonNode.Parse(File.ReadAllText(schedulePath)), JsonNode.Parse(originalSchedule)),
+        "Failed schedule publication restores the original record and history");
+    Check(!File.Exists(Path.Combine(schedulesDirectory, "41.json")), "Schedule update preserves its original filename");
+    failPublication = false;
+    response = await retryClient.PutAsJsonAsync("/api/Schedules/41", new { id = 41, name = "Changed" });
+    Check(response.StatusCode == HttpStatusCode.OK &&
+        JsonNode.Parse(File.ReadAllText(schedulePath))!["history"]!.AsArray().Count == 1,
+        "Schedule retry saves exactly one revision");
     await restarted.StopAsync();
 
     // Exercise the normal publisher too: local development must not need Git credentials.
@@ -174,6 +192,38 @@ try
     response = await localClient.PostAsJsonAsync("/api/auth/login", new { username = "local-operator", password });
     Check(response.StatusCode == HttpStatusCode.OK, "Normal local signup can immediately log in");
     await local.StopAsync();
+
+    // A rejected Git push must not retain a failed signup commit for a later push.
+    var gitDirectory = Path.Combine(directory, "git-storage");
+    LibGit2Sharp.Repository.Init(gitDirectory);
+    Database.ConfigureStorage(gitDirectory, false, Path.Combine(gitDirectory, "Database"));
+    Directory.CreateDirectory(Database.GetCollectionDirectory("Profiles"));
+    File.WriteAllText(Path.Combine(gitDirectory, "seed.txt"), "seed");
+    using (var repository = new LibGit2Sharp.Repository(gitDirectory))
+    {
+        LibGit2Sharp.Commands.Stage(repository, "*");
+        var signature = new LibGit2Sharp.Signature("Test", "test@example.invalid", DateTimeOffset.Now);
+        var initial = repository.Commit("Initial", signature, signature);
+        if (repository.Head.FriendlyName != "main")
+        {
+            var branch = repository.CreateBranch("main");
+            LibGit2Sharp.Commands.Checkout(repository, branch);
+        }
+        repository.Network.Remotes.Add("origin", Path.Combine(directory, "missing-remote.git"));
+        try
+        {
+            Database.createProfileDatabase(new JsonObject { ["id"] = 1 },
+                message => Database.pushGitDatabase(message, "test", "unused-local-test"));
+            Check(false, "Missing Git remote rejects publication");
+        }
+        catch (LibGit2Sharp.LibGit2SharpException)
+        {
+            Check(repository.Head.Tip.Id == initial.Id, "Rejected push restores the previous Git commit");
+            Check(!repository.RetrieveStatus().IsDirty &&
+                !File.Exists(Path.Combine(Database.GetCollectionDirectory("Profiles"), "1.json")),
+                "Rejected signup leaves neither a profile nor staged changes for a later push");
+        }
+    }
 
     Console.WriteLine($"Passed {checks} authentication integration checks; no live database or Git remote used.");
 }

@@ -507,8 +507,17 @@ namespace Backend
                     scheduleToSave["history"] = history;
                     scheduleToSave["last-revised"] = updatedAt;
 
-                    Database.writeSchedulesDatabase($"{id}.json", scheduleToSave.ToJsonString());
-                    publish($"Update schedule {id}");
+                    try
+                    {
+                        Database.saveScheduleDatabase(id, scheduleToSave, publish);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                        or InvalidOperationException or LibGit2Sharp.LibGit2SharpException)
+                    {
+                        app.Logger.LogError("Schedule save failed ({ErrorType}).", exception.GetType().Name);
+                        return Results.Json(new { error = "Unable to save the schedule. Please try again." },
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
                     return Results.Ok(scheduleToSave);
                 }
             });

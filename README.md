@@ -79,7 +79,7 @@ another local directory or a persistent volume. Relative paths are resolved
 against the backend's content root. All collections use that directory.
 
 Production without this setting retains the existing Git-backed storage:
-`localRepoCopy/Database` from the database repository's `main` branch. Writes
+`localRepoCopy/Database` from `TripleTrucks/TrackingTrucks` on the `main` branch. Writes
 and legacy-password upgrades in that mode require `API_PRIVATE_KEY` with write
 access. Use HTTPS for production cookie sessions.
 
