@@ -216,7 +216,12 @@ const deployment = {
       },
       spec: {
         // Fresh builds exist only on the agent's node until publication succeeds.
-        ...(process.env.SELECTED_IMAGE ? {} : {nodeName: process.env.BUILD_NODE}),
+        // Let the scheduler bind WaitForFirstConsumer PVCs on the build node.
+        ...(process.env.SELECTED_IMAGE ? {} : {affinity: {nodeAffinity: {
+          requiredDuringSchedulingIgnoredDuringExecution: {nodeSelectorTerms: [{
+            matchFields: [{key: 'metadata.name', operator: 'In', values: [process.env.BUILD_NODE]}]
+          }]}
+        }}}),
         automountServiceAccountToken: false,
         ...(process.env.DEPLOY_NAMESPACE === 'production' ? {imagePullSecrets: [{name: 'registry-reader'}]} : {}),
         securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000},
