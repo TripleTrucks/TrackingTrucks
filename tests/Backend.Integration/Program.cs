@@ -195,6 +195,34 @@ try
         Check(response.StatusCode == HttpStatusCode.Created, "Production signup works without a Git publisher");
         response = await productionClient.PostAsJsonAsync("/api/auth/login", new { username = "production-operator", password });
         Check(response.StatusCode == HttpStatusCode.OK, "Production signup authenticates");
+        var sessionCookie = response.Headers.GetValues("Set-Cookie").Single().Split(';')[0];
+        var truck = new JsonObject { ["id"] = 71, ["truckname"] = "Test truck", ["tags"] = new JsonArray(),
+            ["profileIds"] = new JsonArray(), ["scheduleIds"] = new JsonArray() };
+        productionClient.DefaultRequestHeaders.Add("X-Dev-Role", "admin");
+        response = await productionClient.PostAsJsonAsync("/api/Trucks", truck);
+        Check(response.StatusCode == HttpStatusCode.Unauthorized, "Production rejects anonymous trucks and forged development headers");
+        productionClient.DefaultRequestHeaders.Add("Cookie", sessionCookie);
+        response = await productionClient.PostAsJsonAsync("/api/Trucks", truck);
+        Check(response.StatusCode == HttpStatusCode.Forbidden, "User sessions cannot create trucks even with a forged admin header");
+        var profilePath = Path.Combine(productionData, "Profiles", "1.json");
+        var owner = JsonNode.Parse(File.ReadAllText(profilePath))!.AsObject();
+        owner["role"] = "owner";
+        File.WriteAllText(profilePath, owner.ToJsonString());
+        response = await productionClient.PostAsJsonAsync("/api/Trucks", truck);
+        Check(response.StatusCode == HttpStatusCode.Created, "Authenticated owners can create trucks in Production");
+        var createdTruck = JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+        Check(createdTruck["profileIds"]![0]!.GetValue<int>() == 1,
+            "Owner truck is linked to the authenticated profile");
+        truck["id"] = 72;
+        truck["profileIds"] = new JsonArray(999);
+        response = await productionClient.PostAsJsonAsync("/api/Trucks", truck);
+        Check(response.StatusCode == HttpStatusCode.BadRequest, "Owners cannot assign other profiles");
+        owner = JsonNode.Parse(File.ReadAllText(profilePath))!.AsObject();
+        owner["role"] = "admin";
+        File.WriteAllText(profilePath, owner.ToJsonString());
+        truck["profileIds"] = new JsonArray();
+        response = await productionClient.PostAsJsonAsync("/api/Trucks", truck);
+        Check(response.StatusCode == HttpStatusCode.Created, "Authenticated admins can create trucks in Production");
         Directory.CreateDirectory(Path.Combine(productionData, "Schedules"));
         File.WriteAllText(Path.Combine(productionData, "Schedules", "1.json"), "{\"id\":1,\"truckIds\":[]}");
         response = await productionClient.PutAsJsonAsync("/api/Schedules/1", new { id = 1, canceled = true });
