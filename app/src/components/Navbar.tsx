@@ -10,7 +10,7 @@ function Navbar({ pathname }: { pathname: string }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    getCurrentAccount(controller.signal)
+    const refreshAccount = () => getCurrentAccount(controller.signal)
       .then(setAccount)
       .catch(() => {
         if (!controller.signal.aborted) setAccount(null);
@@ -18,7 +18,12 @@ function Navbar({ pathname }: { pathname: string }) {
       .finally(() => {
         if (!controller.signal.aborted) setCheckingSession(false);
       });
-    return () => controller.abort();
+    refreshAccount();
+    window.addEventListener("trackingtrucks:account-updated", refreshAccount);
+    return () => {
+      controller.abort();
+      window.removeEventListener("trackingtrucks:account-updated", refreshAccount);
+    };
   }, []);
 
   async function handleLogout() {
@@ -62,6 +67,12 @@ function Navbar({ pathname }: { pathname: string }) {
           <span className="navbar-account" role="status" aria-label="Checking session">…</span>
         ) : account ? (
           <div className="navbar-session">
+            <a
+              href="/profile/edit"
+              aria-current={pathname === "/profile/edit" ? "page" : undefined}
+            >
+              Edit profile
+            </a>
             <span className="navbar-account" title={account.displayname}>{account.displayname}</span>
             <button className="navbar-login" onClick={handleLogout} disabled={loggingOut}>
               {loggingOut ? "Logging out…" : "Log out"}

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { registerOperator, login, logout, getCurrentAccount } from "../.cache/tests/profilesApi.js";
+import {
+  registerOperator,
+  login,
+  logout,
+  getCurrentAccount,
+  getOwnProfile,
+  updateOwnProfile,
+} from "../.cache/tests/profilesApi.js";
 
 const details = {
   username: "test-operator",
@@ -64,6 +71,78 @@ test("logout posts with the session cookie and reports failures", async (t) => {
   assert.equal(options.headers["X-Requested-With"], "TrackingTrucks");
   fetchMock.mock.mockImplementation(async () => new Response(null, { status: 503 }));
   await assert.rejects(logout(), /Unable to log out/);
+});
+
+test("own-profile reads require the session and validate the profile response", async (t) => {
+  const profile = {
+    id: 1,
+    username: details.username,
+    displayname: details.displayname,
+    "phone-number": "555-0100",
+    role: "owner",
+    truckIds: [4],
+  };
+  const fetchMock = t.mock.method(globalThis, "fetch", async () =>
+    new Response(JSON.stringify(profile))
+  );
+  assert.deepEqual(await getOwnProfile(), profile);
+  const [url, options] = fetchMock.mock.calls[0].arguments;
+  assert.equal(url, "/api/Profiles/me");
+  assert.equal(options.credentials, "same-origin");
+  assert.equal(options.cache, "no-store");
+
+  fetchMock.mock.mockImplementation(async () => new Response(null, { status: 401 }));
+  await assert.rejects(getOwnProfile(), /Verify your account again/);
+});
+
+test("own-profile updates send only authenticated editable fields", async (t) => {
+  const profile = {
+    id: 1,
+    username: details.username,
+    displayname: details.displayname,
+    "phone-number": "555-0100",
+    role: "owner",
+    truckIds: [4],
+  };
+  const fetchMock = t.mock.method(globalThis, "fetch", async () =>
+    new Response(JSON.stringify(profile))
+  );
+  const update = {
+    currentPassword: details.password,
+    username: details.username,
+    displayname: details.displayname,
+    "phone-number": "555-0100",
+    "new-password": "",
+    "confirm-new-password": "",
+    role: "owner",
+  };
+  assert.deepEqual(await updateOwnProfile(update), profile);
+  const [url, options] = fetchMock.mock.calls[0].arguments;
+  assert.equal(url, "/api/Profiles/me");
+  assert.equal(options.method, "PUT");
+  assert.equal(options.credentials, "same-origin");
+  assert.equal(options.headers["X-Requested-With"], "TrackingTrucks");
+  assert.deepEqual(JSON.parse(options.body), update);
+});
+
+test("own-profile updates report authorization and duplicate-username errors", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () =>
+    new Response(JSON.stringify({ error: "Username already exists." }), { status: 409 })
+  );
+  const update = {
+    currentPassword: details.password,
+    username: details.username,
+    displayname: details.displayname,
+    "phone-number": "",
+    "new-password": "",
+    "confirm-new-password": "",
+    role: "user",
+  };
+  await assert.rejects(updateOwnProfile(update), /Username already exists/);
+  fetchMock.mock.mockImplementation(async () =>
+    new Response(null, { status: 401 })
+  );
+  await assert.rejects(updateOwnProfile(update), /Verify your account again/);
 });
 
 test("registration reports backend validation errors", async (t) => {

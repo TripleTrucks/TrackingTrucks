@@ -87,10 +87,121 @@ try
         Check(!body.Contains("password") && !body.Contains("555-0100"), $"{path} hides credentials and contact details");
     }
 
+    var profileEditorRegistration = new JsonObject
+    {
+        ["username"] = "profile-editor",
+        ["displayname"] = "Profile Editor",
+        ["password"] = password,
+        ["confirm-password"] = password,
+        ["phone-number"] = "555-0101"
+    };
+    response = await client.PostAsJsonAsync("/api/Profiles/signup", profileEditorRegistration);
+    Check(response.StatusCode == HttpStatusCode.Created, "Profile editor account is created");
+    using var editorClient = new HttpClient(new HttpClientHandler { CookieContainer = new CookieContainer() })
+    {
+        BaseAddress = new Uri(app.Urls.Single())
+    };
+    editorClient.DefaultRequestHeaders.Add("X-Requested-With", "TrackingTrucks");
+    response = await editorClient.PostAsJsonAsync(
+        "/api/auth/login",
+        new { username = "profile-editor", password });
+    Check(response.StatusCode == HttpStatusCode.OK, "Profile editor authenticates before editing");
+    response = await editorClient.GetAsync("/api/Profiles/me");
+    Check(response.StatusCode == HttpStatusCode.OK && response.Headers.CacheControl?.NoStore == true,
+        "Authenticated operators can load their own non-cacheable profile");
+    body = await response.Content.ReadAsStringAsync();
+    Check(body.Contains("555-0101") && !body.Contains("password"),
+        "Own-profile view exposes editable contact data but no credentials");
+
+    var profileEditorPath = Path.Combine(profilesDirectory, "2.json");
+    var profileBeforeUpdate = File.ReadAllText(profileEditorPath);
+    var profileUpdate = new JsonObject
+    {
+        ["currentPassword"] = password,
+        ["username"] = "profile-editor",
+        ["displayname"] = "Updated Operator",
+        ["phone-number"] = "555-0102",
+        ["new-password"] = "updated-integration-password-238",
+        ["confirm-new-password"] = "updated-integration-password-238",
+        ["role"] = "owner",
+        ["id"] = 900,
+        ["truckIds"] = new JsonArray(900)
+    };
+    response = await editorClient.PutAsJsonAsync("/api/Profiles/me", profileUpdate);
+    Check(response.StatusCode == HttpStatusCode.BadRequest &&
+        File.ReadAllText(profileEditorPath) == profileBeforeUpdate,
+        "An operator cannot assign themselves owner without an assigned truck");
+
+    var linkedTruck = new JsonObject
+    {
+        ["id"] = 77,
+        ["truckname"] = "Linked truck",
+        ["tags"] = new JsonArray(),
+        ["profileIds"] = new JsonArray(2),
+        ["scheduleIds"] = new JsonArray()
+    };
+    Database.writeTrucksDatabase("77.json", linkedTruck.ToJsonString());
+    var linkedTruckPath = Path.Combine(directory, "Database", "Trucks", "77.json");
+    var linkedTruckBeforeUpdate = File.ReadAllText(linkedTruckPath);
+    Database.addTruckToProfileDatabase(2, 77);
+    profileBeforeUpdate = File.ReadAllText(profileEditorPath);
+    var invalidCredentialUpdate = (JsonObject)profileUpdate.DeepClone();
+    invalidCredentialUpdate["currentPassword"] = "incorrect-password";
+    response = await editorClient.PutAsJsonAsync("/api/Profiles/me", invalidCredentialUpdate);
+    Check(response.StatusCode == HttpStatusCode.Unauthorized &&
+        File.ReadAllText(profileEditorPath) == profileBeforeUpdate,
+        "A profile update requires the current password");
+
+    var adminRoleUpdate = (JsonObject)profileUpdate.DeepClone();
+    adminRoleUpdate["role"] = "admin";
+    response = await editorClient.PutAsJsonAsync("/api/Profiles/me", adminRoleUpdate);
+    Check(response.StatusCode == HttpStatusCode.BadRequest &&
+        File.ReadAllText(profileEditorPath) == profileBeforeUpdate,
+        "Self-service profile updates cannot grant administrator roles");
+
+    editorClient.DefaultRequestHeaders.Remove("X-Requested-With");
+    response = await editorClient.PutAsJsonAsync("/api/Profiles/me", profileUpdate);
+    Check(response.StatusCode == HttpStatusCode.BadRequest,
+        "Cross-origin profile changes are rejected");
+    editorClient.DefaultRequestHeaders.Add("X-Requested-With", "TrackingTrucks");
+
+    profileUpdate["username"] = "updated-profile-editor";
+    response = await editorClient.PutAsJsonAsync("/api/Profiles/me", profileUpdate);
+    Check(response.StatusCode == HttpStatusCode.OK, "An authenticated operator can update profile details");
+    body = await response.Content.ReadAsStringAsync();
+    Check(body.Contains("\"id\":2") && body.Contains("\"truckIds\":[77]") &&
+        !body.Contains("password"),
+        "Profile updates preserve protected IDs and never return credentials");
+    saved = JsonNode.Parse(File.ReadAllText(profileEditorPath))!.AsObject();
+    Check(saved["id"]!.GetValue<int>() == 2 &&
+        saved["truckIds"]!.ToJsonString() == "[77]" &&
+        saved["role"]!.GetValue<string>() == "owner" &&
+        saved["displayname"]!.GetValue<string>() == "Updated Operator" &&
+        saved["phone-number"]!.GetValue<string>() == "555-0102" &&
+        saved["password"] is null && saved["password-hash"] is not null &&
+        File.ReadAllText(linkedTruckPath) == linkedTruckBeforeUpdate,
+        "Only editable profile fields change in Profiles JSON; truck JSON is untouched");
+
+    response = await editorClient.PostAsync("/api/auth/logout", null);
+    Check(response.StatusCode == HttpStatusCode.NoContent, "Updated profile session can log out");
+    response = await editorClient.PostAsJsonAsync(
+        "/api/auth/login",
+        new { username = "updated-profile-editor", password = "updated-integration-password-238" });
+    Check(response.StatusCode == HttpStatusCode.OK, "Updated username and password authenticate");
+    response = await editorClient.PostAsJsonAsync(
+        "/api/auth/login",
+        new { username = "updated-profile-editor", password });
+    Check(response.StatusCode == HttpStatusCode.Unauthorized, "The previous password no longer authenticates");
+    await editorClient.PostAsync("/api/auth/logout", null);
+    Database.deleteProfilesDatabase("2.json");
+    Database.deleteTrucksDatabase("77.json");
+
     response = await client.PostAsync("/api/auth/logout", null);
     Check(response.StatusCode == HttpStatusCode.NoContent, "Logout clears the cookie");
     response = await client.GetAsync("/api/auth/session");
     Check(response.StatusCode == HttpStatusCode.Unauthorized, "Logged-out session is rejected");
+    response = await client.GetAsync("/api/Profiles/me");
+    Check(response.StatusCode == HttpStatusCode.Unauthorized, "Profile editor data requires an authenticated session");
 
     // Older profiles may have a descriptive filename rather than <id>.json.
     var legacy = new JsonObject { ["id"] = 2, ["username"] = "legacy", ["displayname"] = "Legacy", ["password"] = password };

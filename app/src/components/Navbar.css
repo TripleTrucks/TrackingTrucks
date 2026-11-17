@@ -139,10 +139,18 @@
 
 @media (max-width: 640px) {
   .navbar {
+    height: auto;
+    min-height: var(--navbar-height);
     flex-direction: column;
     justify-content: center;
     gap: 10px;
     padding: 12px 16px;
+  }
+
+  .navbar-links,
+  .navbar-session {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .navbar-brand {

@@ -10,6 +10,10 @@ The `Database` directory stores JSON records in `Profiles`, `Trucks`, and
   lowercase strings.
 - A truck's `profileIds` and `scheduleIds` list its associated profiles and
   schedules.
+- Operators can edit their own username, display name, phone number, password,
+  and role after signing in and confirming their current password. Profile IDs
+  and `truckIds` remain server-managed; self-service role changes are limited
+  to `user` and `owner`, and an assigned truck is required for the owner role.
 - A schedule's `truckIds` lists the trucks that use that schedule.
 - Schedule records may set `canceled` or `soldOut` to `true` for temporary
   service changes; both flags are optional and default to `false`.
