@@ -175,6 +175,45 @@ try
     Check(response.StatusCode == HttpStatusCode.OK, "Normal local signup can immediately log in");
     await local.StopAsync();
 
+    // Production must persist to its mounted JSON directory without Git credentials.
+    var productionRoot = Path.Combine(directory, "production");
+    var productionData = Path.Combine(productionRoot, "mounted-data");
+    Directory.CreateDirectory(productionRoot);
+    var productionArgs = new[] { "--urls", "http://127.0.0.1:0", "--environment", "Production",
+        "--contentRoot", productionRoot, "--TRACKINGTRUCKS_DATABASE_PATH", productionData,
+        "--Logging:LogLevel:Default", "Warning" };
+    await using (var production = API.CreateApp(productionArgs))
+    {
+        Database.InitializeStorage();
+        Check(!Database.UsesGitStorage && Database.DatabaseDirectory == productionData,
+            "Production uses the mounted local database");
+        await production.StartAsync();
+        using var productionClient = new HttpClient { BaseAddress = new Uri(production.Urls.Single()) };
+        productionClient.DefaultRequestHeaders.Add("X-Requested-With", "TrackingTrucks");
+        registration["username"] = "production-operator";
+        response = await productionClient.PostAsJsonAsync("/api/Profiles/signup", registration);
+        Check(response.StatusCode == HttpStatusCode.Created, "Production signup works without a Git publisher");
+        response = await productionClient.PostAsJsonAsync("/api/auth/login", new { username = "production-operator", password });
+        Check(response.StatusCode == HttpStatusCode.OK, "Production signup authenticates");
+        Directory.CreateDirectory(Path.Combine(productionData, "Schedules"));
+        File.WriteAllText(Path.Combine(productionData, "Schedules", "1.json"), "{\"id\":1,\"truckIds\":[]}");
+        response = await productionClient.PutAsJsonAsync("/api/Schedules/1", new { id = 1, canceled = true });
+        Check(response.StatusCode == HttpStatusCode.OK, "Production schedule save works without Git");
+        await production.StopAsync();
+    }
+    await using (var production = API.CreateApp(productionArgs))
+    {
+        Database.InitializeStorage();
+        await production.StartAsync();
+        using var productionClient = new HttpClient { BaseAddress = new Uri(production.Urls.Single()) };
+        productionClient.DefaultRequestHeaders.Add("X-Requested-With", "TrackingTrucks");
+        response = await productionClient.PostAsJsonAsync("/api/auth/login", new { username = "production-operator", password });
+        Check(response.StatusCode == HttpStatusCode.OK, "Production account survives restart");
+        Check(JsonNode.Parse(File.ReadAllText(Path.Combine(productionData, "Schedules", "1.json")))!["canceled"]!.GetValue<bool>(),
+            "Production schedule survives restart");
+        await production.StopAsync();
+    }
+
     Console.WriteLine($"Passed {checks} authentication integration checks; no live database or Git remote used.");
 }
 finally
