@@ -1,6 +1,7 @@
 import {
   useEffect,
   useState,
+  type ChangeEvent,
   type FormEvent,
 } from "react";
 import { fetchProfiles, fetchSchedules, fetchTrucks, updateTruck } from "../src/schedulesApi";
@@ -28,6 +29,8 @@ function EditTruckPage({ truckId }: EditTruckPageProps) {
   const [socialLinks, setSocialLinks] = useState<SocialMediaLink[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [profileIds, setProfileIds] = useState<number[]>([]);
+  const [scheduleIds, setScheduleIds] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -50,6 +53,8 @@ function EditTruckPage({ truckId }: EditTruckPageProps) {
           setTruck(loadedTruck);
           setTruckname(loadedTruck.truckname);
           setTags(loadedTruck.tags.join(", "));
+          setProfileIds(loadedTruck.profileIds);
+          setScheduleIds(loadedTruck.scheduleIds);
           setSocialLinks(
             loadedTruck["social-media"]?.length
               ? loadedTruck["social-media"]
@@ -88,6 +93,16 @@ function EditTruckPage({ truckId }: EditTruckPageProps) {
     setErrorMessage(null);
   }
 
+  function updateSelectedIds(
+    event: ChangeEvent<HTMLSelectElement>,
+    update: (ids: number[]) => void
+  ) {
+    update(
+      Array.from(event.target.selectedOptions, (option) => Number(option.value))
+    );
+    setErrorMessage(null);
+  }
+
   async function submitTruck(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!truck) {
@@ -115,6 +130,8 @@ function EditTruckPage({ truckId }: EditTruckPageProps) {
         truckname: truckname.trim(),
         tags: [...new Set(tags.split(",").map((tag) => tag.trim()).filter(Boolean))],
         "social-media": socialMedia,
+        profileIds,
+        scheduleIds,
       });
       window.location.assign("/");
     } catch (error: unknown) {
@@ -125,13 +142,6 @@ function EditTruckPage({ truckId }: EditTruckPageProps) {
       setIsSaving(false);
     }
   }
-
-  const truckProfiles = (truck?.profileIds ?? [])
-    .map((id) => profiles.find((profile) => profile.id === id))
-    .filter((profile): profile is Profile => profile !== undefined);
-  const truckSchedules = (truck?.scheduleIds ?? [])
-    .map((id) => schedules.find((schedule) => schedule.id === id))
-    .filter((schedule): schedule is Schedule => schedule !== undefined);
 
   return (
     <div className="home">
@@ -264,27 +274,44 @@ function EditTruckPage({ truckId }: EditTruckPageProps) {
               <section className="add-truck-section">
                 <h2>Associations</h2>
                 <p className="add-truck-section-help">
-                  Profile and schedule associations remain unchanged when you save.
+                  Select the profiles and schedules associated with this truck.
                 </p>
                 <div className="add-truck-associations">
-                  <div className="add-truck-field">
+                  <label className="add-truck-field">
                     <span>Profiles</span>
-                    <p>
-                      {truckProfiles.length
-                        ? truckProfiles.map((profile) => profile.displayname).join(", ")
-                        : "None"}
-                    </p>
-                  </div>
-                  <div className="add-truck-field">
+                    <select
+                      multiple
+                      value={profileIds.map(String)}
+                      onChange={(event) =>
+                        updateSelectedIds(event, setProfileIds)
+                      }
+                    >
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.displayname} (ID {profile.id})
+                        </option>
+                      ))}
+                    </select>
+                    <small>Select one or more profiles (Ctrl/Command-click for multiple).</small>
+                  </label>
+                  <label className="add-truck-field">
                     <span>Schedules</span>
-                    <p>
-                      {truckSchedules.length
-                        ? truckSchedules
-                            .map((schedule) => schedule.location?.name || `Schedule ${schedule.id}`)
-                            .join(", ")
-                        : "None"}
-                    </p>
-                  </div>
+                    <select
+                      multiple
+                      value={scheduleIds.map(String)}
+                      onChange={(event) =>
+                        updateSelectedIds(event, setScheduleIds)
+                      }
+                    >
+                      {schedules.map((schedule) => (
+                        <option key={schedule.id} value={schedule.id}>
+                          {schedule.location?.name || `Schedule ${schedule.id}`} (ID{" "}
+                          {schedule.id})
+                        </option>
+                      ))}
+                    </select>
+                    <small>Select one or more schedules to link to this truck.</small>
+                  </label>
                 </div>
               </section>
 

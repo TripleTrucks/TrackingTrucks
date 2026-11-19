@@ -227,6 +227,48 @@ namespace Backend
             }
         }
 
+        public static void removeTruckFromProfileDatabase(int profileId, int truckId)
+        {
+            var profile = FindRecord("Profiles", profileId)
+                ?? throw new FileNotFoundException($"Profile {profileId} was not found.");
+            if (profile.Record["truckIds"] is not JsonArray truckIds)
+            {
+                throw new InvalidDataException($"Profile {profileId} has no valid truckIds array.");
+            }
+
+            for (int index = truckIds.Count - 1; index >= 0; index--)
+            {
+                if (truckIds[index] is JsonValue value &&
+                    value.TryGetValue<int>(out var linkedTruckId) &&
+                    linkedTruckId == truckId)
+                {
+                    truckIds.RemoveAt(index);
+                    WriteDatabaseRecord("Profiles", profile.FileName, profile.Record.ToJsonString());
+                }
+            }
+        }
+
+        public static void removeTruckFromScheduleDatabase(int scheduleId, int truckId)
+        {
+            var schedule = FindRecord("Schedules", scheduleId)
+                ?? throw new FileNotFoundException($"Schedule {scheduleId} was not found.");
+            if (schedule.Record["truckIds"] is not JsonArray truckIds)
+            {
+                throw new InvalidDataException($"Schedule {scheduleId} has no valid truckIds array.");
+            }
+
+            for (int index = truckIds.Count - 1; index >= 0; index--)
+            {
+                if (truckIds[index] is JsonValue value &&
+                    value.TryGetValue<int>(out var linkedTruckId) &&
+                    linkedTruckId == truckId)
+                {
+                    truckIds.RemoveAt(index);
+                    WriteDatabaseRecord("Schedules", schedule.FileName, schedule.Record.ToJsonString());
+                }
+            }
+        }
+
         public static void removeTruckLinksDatabase(int truckId)
         {
             RemoveTruckLinksFromCollection("Profiles", truckId);

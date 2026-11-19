@@ -225,6 +225,27 @@ try
         Check(response.StatusCode == HttpStatusCode.Created, "Authenticated admins can create trucks in Production");
         Directory.CreateDirectory(Path.Combine(productionData, "Schedules"));
         File.WriteAllText(Path.Combine(productionData, "Schedules", "1.json"), "{\"id\":1,\"truckIds\":[]}");
+        var secondProfilePath = Path.Combine(productionData, "Profiles", "2.json");
+        File.WriteAllText(secondProfilePath, "{\"id\":2,\"displayname\":\"Second Owner\",\"role\":\"owner\",\"truckIds\":[]}");
+        var secondSchedulePath = Path.Combine(productionData, "Schedules", "2.json");
+        File.WriteAllText(secondSchedulePath, "{\"id\":2,\"truckIds\":[]}");
+        var editableTruck = new JsonObject
+        {
+            ["id"] = 72,
+            ["truckname"] = "Edited truck",
+            ["tags"] = new JsonArray("edited"),
+            ["profileIds"] = new JsonArray(2),
+            ["scheduleIds"] = new JsonArray(2)
+        };
+        response = await productionClient.PutAsJsonAsync("/api/Trucks/72", editableTruck);
+        Check(response.StatusCode == HttpStatusCode.OK, "Authenticated admins can edit truck profile and schedule associations");
+        var savedEditedTruck = JsonNode.Parse(File.ReadAllText(Path.Combine(productionData, "Trucks", "72.json")))!.AsObject();
+        var secondProfile = JsonNode.Parse(File.ReadAllText(secondProfilePath))!.AsObject();
+        var secondSchedule = JsonNode.Parse(File.ReadAllText(secondSchedulePath))!.AsObject();
+        Check(savedEditedTruck["profileIds"]![0]!.GetValue<int>() == 2 &&
+            secondProfile["truckIds"]!.AsArray().Any(value => value!.GetValue<int>() == 72) &&
+            secondSchedule["truckIds"]!.AsArray().Any(value => value!.GetValue<int>() == 72),
+            "Truck edits synchronize profile and schedule lists");
         response = await productionClient.PutAsJsonAsync("/api/Schedules/1", new { id = 1, canceled = true });
         Check(response.StatusCode == HttpStatusCode.OK, "Production schedule save works without Git");
         await production.StopAsync();
