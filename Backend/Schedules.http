@@ -1,10 +1,40 @@
 @baseUrl = http://localhost:62926
+@username = operator-username
+@password = current-password
 
 ### List schedules
 GET {{baseUrl}}/api/Schedules
 
 ### Get a schedule
 GET {{baseUrl}}/api/Schedules/1
+
+### Sign in before reading or editing your profile
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+X-Requested-With: TrackingTrucks
+
+{
+  "username": "{{username}}",
+  "password": "{{password}}"
+}
+
+### Read the signed-in profile
+GET {{baseUrl}}/api/Profiles/me
+
+### Update the signed-in profile (profile ID and truck assignments are not editable)
+PUT {{baseUrl}}/api/Profiles/me
+Content-Type: application/json
+X-Requested-With: TrackingTrucks
+
+{
+  "currentPassword": "{{password}}",
+  "username": "{{username}}",
+  "displayname": "Updated Operator",
+  "phone-number": "555-0100",
+  "new-password": "",
+  "confirm-new-password": "",
+  "role": "user"
+}
 
 ### Update a schedule (the prior version is archived automatically)
 PUT {{baseUrl}}/api/Schedules/1

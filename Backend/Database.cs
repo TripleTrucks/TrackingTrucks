@@ -201,6 +201,13 @@ namespace Backend
             return FindRecord("Profiles", profileId)?.Record;
         }
 
+        public static void updateProfileDatabase(int profileId, string json)
+        {
+            var profile = FindRecord("Profiles", profileId)
+                ?? throw new FileNotFoundException($"Profile {profileId} was not found.");
+            WriteDatabaseRecord("Profiles", profile.FileName, json);
+        }
+
         public static void updateProfilePassword(int profileId, string passwordHash)
         {
             var profile = FindRecord("Profiles", profileId)

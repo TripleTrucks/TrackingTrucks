@@ -103,11 +103,13 @@ namespace Backend
             app.Use(async (context, next) =>
             {
                 if (context.Request.Path.StartsWithSegments("/api/auth") ||
-                    context.Request.Path == "/api/Profiles/signup")
+                    context.Request.Path == "/api/Profiles/signup" ||
+                    context.Request.Path == "/api/Profiles/me")
                 {
                     context.Response.Headers.CacheControl = "no-store";
                     // A custom header prevents cross-origin forms from changing browser sessions.
-                    if (HttpMethods.IsPost(context.Request.Method) &&
+                    if ((HttpMethods.IsPost(context.Request.Method) ||
+                         HttpMethods.IsPut(context.Request.Method)) &&
                         context.Request.Headers["X-Requested-With"] != "TrackingTrucks")
                     {
                         context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -638,6 +640,117 @@ namespace Backend
                 }
             });
 
+            app.MapGet("/api/Profiles/me", (HttpContext context) =>
+            {
+                if (!TryGetAuthenticatedProfile(context, out var profileId))
+                    return Results.Unauthorized();
+
+                var profile = Database.getProfileDatabase(profileId);
+                return profile is null
+                    ? Results.Unauthorized()
+                    : Results.Ok(ToOwnProfileResponse(profile));
+            })
+                .RequireAuthorization()
+                .WithName("GetOwnProfile")
+                .WithSummary("Get the signed-in operator's editable profile")
+                .Produces<OwnProfileResponse>()
+                .Produces(StatusCodes.Status401Unauthorized);
+
+            app.MapPut("/api/Profiles/me", async (HttpContext context, UpdateOwnProfileRequest request) =>
+            {
+                if (!ProfileUpdateValidation.TryNormalize(request, out var update, out var error))
+                    return Results.BadRequest(new { error });
+
+                if (!TryGetAuthenticatedProfile(context, out var profileId))
+                    return Results.Unauthorized();
+
+                OwnProfileResponse updatedResponse;
+                lock (databaseWriteLock)
+                {
+                    var profile = Database.getProfileDatabase(profileId);
+                    if (profile is null ||
+                        !ProfilePasswords.Verify(profile, update.CurrentPassword, out _))
+                    {
+                        return Results.Unauthorized();
+                    }
+
+                    var currentRole = ReadProfileString(profile, "role").ToLowerInvariant();
+                    if ((currentRole == "admin" && update.Role != "admin") ||
+                        (currentRole != "admin" && update.Role == "admin"))
+                    {
+                        return Results.BadRequest(new { error = "Administrator roles can only be changed by an administrator." });
+                    }
+
+                    if (update.Role == "owner" && currentRole != "admin" &&
+                        !HasAssignedTruck(profile, profileId))
+                    {
+                        return Results.BadRequest(new { error = "An operator must have an assigned truck before becoming an owner." });
+                    }
+
+                    bool usernameExists = GetDataFromDirectory(GetCollectionDirectory("Profiles"))
+                        .OfType<JsonObject>()
+                        .Any(existing =>
+                            existing["id"] is JsonValue idValue &&
+                            idValue.TryGetValue<int>(out var existingId) &&
+                            existingId != profileId &&
+                            existing["username"] is JsonValue usernameValue &&
+                            usernameValue.TryGetValue<string>(out var existingUsername) &&
+                            string.Equals(existingUsername, update.Username, StringComparison.OrdinalIgnoreCase));
+
+                    if (usernameExists)
+                        return Results.Conflict(new { error = "Username already exists." });
+
+                    var updatedProfile = (JsonObject)profile.DeepClone();
+                    updatedProfile["username"] = update.Username;
+                    updatedProfile["displayname"] = update.DisplayName;
+                    updatedProfile["phone-number"] = update.PhoneNumber;
+                    updatedProfile["role"] = update.Role;
+                    if (update.NewPassword is not null)
+                    {
+                        updatedProfile.Remove("password");
+                        updatedProfile["password-hash"] =
+                            ProfilePasswords.Hash(updatedProfile, update.NewPassword);
+                    }
+
+                    updatedResponse = ToOwnProfileResponse(updatedProfile);
+                    try
+                    {
+                        Database.updateProfileDatabase(profileId, updatedProfile.ToJsonString());
+                        publish($"Update profile {profileId}");
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                        or InvalidOperationException or LibGit2Sharp.LibGit2SharpException)
+                    {
+                        app.Logger.LogError("Profile update could not be saved ({ErrorType}).", exception.GetType().Name);
+                        return Results.Json(new { error = "Your profile could not be saved. Please try again." },
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+                }
+
+                var claims = new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, profileId.ToString()),
+                    new Claim(ClaimTypes.Name, update.Username)
+                };
+                var identity = new ClaimsIdentity(
+                    claims,
+                    CookieAuthenticationDefaults.AuthenticationScheme);
+                await context.SignInAsync(
+                    CookieAuthenticationDefaults.AuthenticationScheme,
+                    new ClaimsPrincipal(identity));
+
+                return Results.Ok(updatedResponse);
+            })
+                .RequireAuthorization()
+                .RequireRateLimiting("auth")
+                .WithName("UpdateOwnProfile")
+                .WithSummary("Update the signed-in operator's editable profile")
+                .Produces<OwnProfileResponse>()
+                .Produces(StatusCodes.Status400BadRequest)
+                .Produces(StatusCodes.Status401Unauthorized)
+                .Produces(StatusCodes.Status409Conflict)
+                .Produces(StatusCodes.Status503ServiceUnavailable);
+
             // ==========================================
             // REGISTRATION ENDPOINT
             // ==========================================
@@ -730,6 +843,58 @@ namespace Backend
             ["displayname"] = profile["displayname"]?.DeepClone()
         };
 
+        private static bool TryGetAuthenticatedProfile(HttpContext context, out int profileId) =>
+            int.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out profileId) &&
+            profileId > 0;
+
+        private static OwnProfileResponse ToOwnProfileResponse(JsonObject profile)
+        {
+            if (profile["id"] is not JsonValue idValue ||
+                !idValue.TryGetValue<int>(out var id) ||
+                (profile["truckIds"] is not null && profile["truckIds"] is not JsonArray))
+            {
+                throw new InvalidDataException("The profile record is invalid.");
+            }
+
+            return new OwnProfileResponse(
+                id,
+                ReadProfileString(profile, "username"),
+                ReadProfileString(profile, "displayname"),
+                ReadProfileString(profile, "phone-number", allowMissing: true),
+                ReadProfileString(profile, "role"),
+                (profile["truckIds"] as JsonArray ?? new JsonArray())
+                    .Select(value =>
+                    {
+                        if (value is not JsonValue truckIdValue ||
+                            !truckIdValue.TryGetValue<int>(out var truckId) ||
+                            truckId <= 0)
+                        {
+                            throw new InvalidDataException("The profile truck assignments are invalid.");
+                        }
+
+                        return truckId;
+                    })
+                    .ToArray());
+        }
+
+        private static string ReadProfileString(
+            JsonObject profile,
+            string propertyName,
+            bool allowMissing = false)
+        {
+            if (profile[propertyName] is JsonValue value &&
+                value.TryGetValue<string>(out var text) &&
+                (allowMissing || text is not null))
+            {
+                return text;
+            }
+
+            if (allowMissing && profile[propertyName] is null)
+                return "";
+
+            throw new InvalidDataException($"The profile {propertyName} value is invalid.");
+        }
+
         private static string GetCollectionDirectory(string collectionName)
         {
             return Database.GetCollectionDirectory(collectionName);
@@ -762,6 +927,29 @@ namespace Backend
                 string.Equals(profileRole, "owner", StringComparison.OrdinalIgnoreCase) &&
                 profile["truckIds"] is JsonArray profileTruckIds &&
                 ContainsId(profileTruckIds, truckId);
+        }
+
+        private static bool HasAssignedTruck(JsonObject profile, int profileId)
+        {
+            if (profile["truckIds"] is not JsonArray assignedTruckIds)
+                return false;
+
+            var linkedTruckIds = assignedTruckIds
+                .OfType<JsonValue>()
+                .Select(value => value.TryGetValue<int>(out var truckId) ? truckId : 0)
+                .Where(truckId => truckId > 0)
+                .ToHashSet();
+            if (linkedTruckIds.Count == 0)
+                return false;
+
+            return GetDataFromDirectory(GetCollectionDirectory("Trucks"))
+                .OfType<JsonObject>()
+                .Any(truck =>
+                    truck["id"] is JsonValue idValue &&
+                    idValue.TryGetValue<int>(out var truckId) &&
+                    linkedTruckIds.Contains(truckId) &&
+                    truck["profileIds"] is JsonArray profileIds &&
+                    ContainsId(profileIds, profileId));
         }
 
         private static bool ContainsId(JsonArray values, int id)

@@ -5,6 +5,7 @@ import Login from "./Login";
 import NotFound from "./NotFound";
 import AddTruckPage from "./AddTruckPage";
 import EditTruckPage from "./EditTruckPage";
+import ProfileEditPage from "./ProfileEditPage";
 
 const routes = {
   "/": Home,
@@ -12,6 +13,7 @@ const routes = {
   "/signin": OperatorRegister,
   "/login": Login,
   "/trucks/new": AddTruckPage,
+  "/profile/edit": ProfileEditPage,
 };
 
 export default function AppRoutes({ pathname }: { pathname: string }) {
