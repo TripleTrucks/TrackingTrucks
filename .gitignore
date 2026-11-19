@@ -244,6 +244,8 @@ release/
 /image.tar
 Backend/obj/
 Backend/bin/
+tests/Backend.Integration/bin/
+tests/Backend.Integration/obj/
 
 # Runtime repository clones created by the backend, not source submodules.
 localRepoCopy/

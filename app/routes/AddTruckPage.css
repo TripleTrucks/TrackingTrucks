@@ -3,7 +3,7 @@
   --add-truck-border: #dddddd;
   --add-truck-muted: #666666;
 
-  min-height: calc(100vh - 60px);
+  min-height: calc(100dvh - var(--navbar-height));
   padding: clamp(20px, 4vw, 48px);
   background: #f7f7f7;
 }
@@ -220,22 +220,6 @@
 }
 
 @media (max-width: 560px) {
-  .navbar {
-    height: auto;
-    min-height: 60px;
-    align-items: flex-start;
-    gap: 12px;
-    padding-top: 14px;
-    padding-bottom: 14px;
-  }
-
-  .navbar-links {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px 12px;
-    font-size: 13px;
-  }
-
   .add-truck-social-row {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 12px;

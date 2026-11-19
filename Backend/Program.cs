@@ -7,8 +7,6 @@ namespace Backend
         static void Main(string[] args)
         {
             DotNetEnv.Env.TraversePath().Load();
-            Database.clearFolder("localRepoCopy");
-            Database.pullGitDatabase();
             API.startAPI(args);
             /*
             Database.parseProfilesDatabase();

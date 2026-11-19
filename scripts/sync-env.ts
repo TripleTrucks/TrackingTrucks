@@ -8,7 +8,6 @@ import { parseEnv } from 'node:util';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const source = readFileSync(join(root, '.env'), 'utf8');
 const variables = parseEnv(source);
-if (!variables.API_PRIVATE_KEY?.trim()) throw new Error('.env is missing API_PRIVATE_KEY');
 const frontend = Object.fromEntries(Object.entries(variables).filter((entry): entry is [string, string] => entry[0].startsWith('VITE_') && typeof entry[1] === 'string'));
 const kubeconfig = join(homedir(), '.kube', 'trackingtrucks-k3s.yaml');
 const env = { ...process.env };
@@ -18,7 +17,6 @@ for (const namespace of ['staging', 'production', 'testing']) {
   const secrets: Record<string, Record<string, string>> = {
     'trackingtrucks-env': { '.env': source },
     'frontend-env': frontend,
-    'backend-env': { API_PRIVATE_KEY: variables.API_PRIVATE_KEY },
   };
   for (const [name, values] of Object.entries(secrets)) {
     const secret = {
@@ -35,7 +33,7 @@ for (const namespace of ['staging', 'production', 'testing']) {
       throw new Error(`Could not sync ${namespace}/${name}; check cluster access and Secret field ownership.`);
     }
   }
-  console.log(`${namespace}: stored .env; synced frontend build variables and backend runtime key.`);
+  console.log(`${namespace}: stored .env; synced frontend build variables.`);
 }
 if (!frontend.VITE_GEOAPIFY_API_KEY?.trim()) {
   console.log('Routing key is missing: add VITE_GEOAPIFY_API_KEY to .env, sync again, and rebuild.');

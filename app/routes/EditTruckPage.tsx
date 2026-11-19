@@ -3,10 +3,9 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import Navbar from "./components/Navbar";
-import { fetchProfiles, fetchSchedules, fetchTrucks, updateTruck } from "./schedulesApi";
-import type { Profile, SocialMediaLink, Truck } from "./dataTypes";
-import type { Schedule } from "./truckStatus";
+import { fetchProfiles, fetchSchedules, fetchTrucks, updateTruck } from "../src/schedulesApi";
+import type { Profile, SocialMediaLink, Truck } from "../src/dataTypes";
+import type { Schedule } from "../src/truckStatus";
 import "./Home.css";
 import "./AddTruckPage.css";
 
@@ -136,7 +135,6 @@ function EditTruckPage({ truckId }: EditTruckPageProps) {
 
   return (
     <div className="home">
-      <Navbar />
       <main className="add-truck-page">
         <header className="add-truck-header">
           <p className="add-truck-eyebrow">Truck administration</p>

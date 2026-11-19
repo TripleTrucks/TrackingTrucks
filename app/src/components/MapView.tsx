@@ -13,6 +13,7 @@ import "leaflet/dist/leaflet.css";
 
 import type { Truck } from "../dataTypes";
 import type { DrivingRoute, MapPosition } from "../geoapifyRouting";
+import { getTruckLocations, type TruckLocation } from "../mapTruckLocations";
 import {
   getTruckStatus,
   type Schedule,
@@ -29,51 +30,6 @@ interface MapViewProps {
     status: "loading" | "success" | "error";
     route?: DrivingRoute;
   } | null;
-}
-
-interface TruckLocation {
-  truck: Truck;
-  schedule: Schedule;
-  position: [number, number];
-}
-
-function getTruckLocations(
-  trucks: Truck[],
-  schedules: Schedule[]
-): TruckLocation[] {
-  return trucks.flatMap((truck) =>
-    (truck.scheduleIds ?? [])
-      .map((scheduleId) =>
-        schedules.find((schedule) => schedule.id === scheduleId)
-      )
-      .flatMap((schedule) => {
-        if (!schedule) {
-          return [];
-        }
-
-        const coordinates = schedule.location?.coordinates;
-
-        if (
-          typeof coordinates?.latitude !== "number" ||
-          typeof coordinates.longitude !== "number" ||
-          !Number.isFinite(coordinates.latitude) ||
-          !Number.isFinite(coordinates.longitude)
-        ) {
-          return [];
-        }
-
-        return [
-          {
-            truck,
-            schedule,
-            position: [coordinates.latitude, coordinates.longitude] as [
-              number,
-              number,
-            ],
-          },
-        ];
-      })
-  );
 }
 
 function FitTruckLocations({

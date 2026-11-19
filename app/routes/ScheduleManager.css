@@ -3,7 +3,7 @@
   --schedule-border: #dddddd;
   --schedule-muted: #666666;
 
-  min-height: calc(100vh - 60px);
+  min-height: calc(100dvh - var(--navbar-height));
   padding: clamp(20px, 4vw, 48px);
   background: #f7f7f7;
 }

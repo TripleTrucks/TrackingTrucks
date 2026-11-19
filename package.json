@@ -7,6 +7,7 @@
         "dev": "npm run tools:compile --silent && node .cache/scripts/app.js dev",
         "build": "npm run tools:compile --silent && node .cache/scripts/app.js build",
         "preview": "vite preview",
+        "test": "tsc -p tests/tsconfig.json && node --test tests/*.test.mjs",
         "geocode:schedules": "node --env-file-if-exists=.env scripts/geocode-schedules.mjs",
         "lint": "eslint app vite.config.ts --max-warnings=0",
         "start": "npm run tools:compile --silent && node .cache/scripts/app.js start",

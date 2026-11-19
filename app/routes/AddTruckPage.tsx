@@ -4,15 +4,14 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
-import Navbar from "./components/Navbar";
 import {
   createTruck,
   fetchProfiles,
   fetchSchedules,
   fetchTrucks,
-} from "./schedulesApi";
-import type { Profile, SocialMediaLink, Truck } from "./dataTypes";
-import type { Schedule } from "./truckStatus";
+} from "../src/schedulesApi";
+import type { Profile, SocialMediaLink, Truck } from "../src/dataTypes";
+import type { Schedule } from "../src/truckStatus";
 import "./Home.css";
 import "./AddTruckPage.css";
 
@@ -156,7 +155,6 @@ function AddTruckPage() {
 
   return (
     <div className="home">
-      <Navbar />
       <main className="add-truck-page">
         <header className="add-truck-header">
           <p className="add-truck-eyebrow">Truck administration</p>
@@ -361,26 +359,12 @@ function AddTruckPage() {
               disabled={
                 isSaving ||
                 isLoadingOptions ||
-                optionsError !== null ||
-                !import.meta.env.DEV
+                optionsError !== null
               }
             >
               {isSaving ? "Adding truck…" : "Add truck"}
             </button>
           </div>
-          {import.meta.env.DEV && (
-            <p className="add-truck-dev-note">
-              Local development only: this form uses the API’s development
-              admin role. Production truck creation requires authenticated
-              API support.
-            </p>
-          )}
-          {!import.meta.env.DEV && (
-            <p className="add-truck-dev-note">
-              Truck creation is unavailable here because the production API
-              does not yet provide an authenticated create operation.
-            </p>
-          )}
         </form>
       </main>
     </div>
