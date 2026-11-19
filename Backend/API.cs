@@ -343,19 +343,30 @@ namespace Backend
 
             app.MapPut("/api/Trucks/{id:int}", (HttpContext context, int id, JsonObject updatedTruck) =>
             {
-                if (!TryGetDevelopmentRole(context, app.Environment, out var role) || role == "user")
-                {
-                    return Results.StatusCode(StatusCodes.Status403Forbidden);
-                }
-
+                string role;
                 int? ownerProfileId = null;
-                if (role == "owner")
+                if (context.User.Identity?.IsAuthenticated == true)
                 {
-                    if (!TryGetDevelopmentOwnerProfileId(context, out int profileId))
-                    {
+                    if (!int.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var profileId))
+                        return Results.Unauthorized();
+                    var profile = Database.getProfileDatabase(profileId);
+                    role = profile?["role"]?.GetValue<string>()?.ToLowerInvariant() ?? "user";
+                    if (role is not ("owner" or "admin"))
+                        return Results.Json(new { error = "An owner or admin account is required to edit trucks." }, statusCode: 403);
+                    if (role == "owner") ownerProfileId = profileId;
+                }
+                else
+                {
+                    if (!TryGetDevelopmentRole(context, app.Environment, out role))
+                        return Results.Json(new { error = "Sign in to edit a truck." }, statusCode: 401);
+                    if (role == "user")
                         return Results.StatusCode(StatusCodes.Status403Forbidden);
+                    if (role == "owner")
+                    {
+                        if (!TryGetDevelopmentOwnerProfileId(context, out var profileId))
+                            return Results.StatusCode(StatusCodes.Status403Forbidden);
+                        ownerProfileId = profileId;
                     }
-                    ownerProfileId = profileId;
                 }
 
                 lock (databaseWriteLock)
@@ -373,15 +384,80 @@ namespace Backend
 
                     if (updatedTruck["id"] is not JsonValue updatedIdValue || !updatedIdValue.TryGetValue<int>(out var updatedId) || updatedId != id ||
                         updatedTruck["truckname"] is not JsonValue nameValue || !nameValue.TryGetValue<string>(out var truckName) || string.IsNullOrWhiteSpace(truckName) ||
-                        updatedTruck["tags"] is not JsonArray || updatedTruck["profileIds"] is not JsonArray profileIds || updatedTruck["scheduleIds"] is not JsonArray scheduleIds)
+                        updatedTruck["tags"] is not JsonArray ||
+                        updatedTruck["profileIds"] is not JsonArray profileIds ||
+                        !TryGetPositiveIds(profileIds, out var requestedProfileIds) ||
+                        updatedTruck["scheduleIds"] is not JsonArray scheduleIds ||
+                        !TryGetPositiveIds(scheduleIds, out var requestedScheduleIds))
                     {
                         return Results.BadRequest(new { error = "Invalid truck record" });
                     }
 
-                    if (existingTruck["profileIds"]?.ToJsonString() != profileIds.ToJsonString() ||
-                        existingTruck["scheduleIds"]?.ToJsonString() != scheduleIds.ToJsonString())
+                    if (existingTruck["profileIds"] is not JsonArray existingProfileIds ||
+                        existingTruck["scheduleIds"] is not JsonArray existingScheduleIds)
                     {
-                        return Results.BadRequest(new { error = "Changing profileIds or scheduleIds is not supported yet." });
+                        return Results.BadRequest(new { error = "Invalid existing truck associations." });
+                    }
+
+                    var existingProfileIdsList = GetPositiveIds(existingProfileIds);
+                    var existingScheduleIdsList = GetPositiveIds(existingScheduleIds);
+                    if (ownerProfileId is not null &&
+                        (existingProfileIdsList.Count != requestedProfileIds.Count ||
+                         existingProfileIdsList.Any(profileId => !requestedProfileIds.Contains(profileId)) ||
+                         existingScheduleIdsList.Count != requestedScheduleIds.Count ||
+                         existingScheduleIdsList.Any(scheduleId => !requestedScheduleIds.Contains(scheduleId))))
+                    {
+                        return Results.StatusCode(StatusCodes.Status403Forbidden);
+                    }
+
+                    var profiles = GetDataFromDirectory(GetCollectionDirectory("Profiles"))
+                        .OfType<JsonObject>()
+                        .Where(record =>
+                            record["id"] is JsonValue recordId &&
+                            recordId.TryGetValue<int>(out var profileId) &&
+                            requestedProfileIds.Contains(profileId))
+                        .ToDictionary(record => record["id"]!.GetValue<int>());
+                    if (profiles.Count != requestedProfileIds.Count ||
+                        profiles.Values.Any(profile => profile["truckIds"] is not JsonArray))
+                    {
+                        return Results.BadRequest(new { error = "One or more selected profiles are invalid." });
+                    }
+
+                    var schedules = GetDataFromDirectory(GetCollectionDirectory("Schedules"))
+                        .OfType<JsonObject>()
+                        .Where(record =>
+                            record["id"] is JsonValue recordId &&
+                            recordId.TryGetValue<int>(out var scheduleId) &&
+                            requestedScheduleIds.Contains(scheduleId))
+                        .ToDictionary(record => record["id"]!.GetValue<int>());
+                    if (schedules.Count != requestedScheduleIds.Count ||
+                        schedules.Values.Any(schedule => schedule["truckIds"] is not JsonArray))
+                    {
+                        return Results.BadRequest(new { error = "One or more selected schedules are invalid." });
+                    }
+
+                    foreach (var removedProfileId in existingProfileIdsList.Except(requestedProfileIds))
+                    {
+                        Database.removeTruckFromProfileDatabase(removedProfileId, id);
+                    }
+                    foreach (var addedProfileId in requestedProfileIds.Except(existingProfileIdsList))
+                    {
+                        Database.addTruckToProfileDatabase(addedProfileId, id);
+                    }
+
+                    foreach (var removedScheduleId in existingScheduleIdsList.Except(requestedScheduleIds))
+                    {
+                        Database.removeTruckFromScheduleDatabase(removedScheduleId, id);
+                    }
+                    foreach (var addedScheduleId in requestedScheduleIds.Except(existingScheduleIdsList))
+                    {
+                        var schedule = schedules[addedScheduleId];
+                        var linkedTruckIds = (JsonArray)schedule["truckIds"]!;
+                        if (!ContainsId(linkedTruckIds, id))
+                        {
+                            linkedTruckIds.Add(id);
+                            Database.writeSchedulesDatabase($"{addedScheduleId}.json", schedule.ToJsonString());
+                        }
                     }
 
                     Database.writeTrucksDatabase($"{id}.json", updatedTruck.ToJsonString());
@@ -977,6 +1053,16 @@ namespace Backend
             }
 
             return true;
+        }
+
+        private static List<int> GetPositiveIds(JsonArray values)
+        {
+            return values
+                .OfType<JsonValue>()
+                .Select(value => value.TryGetValue<int>(out var id) ? id : 0)
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
         }
 
         private static List<object> GetDataFromDirectory(string folderPath)
